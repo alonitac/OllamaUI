@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          repository: your-username/your-ui-testing-repo
+          repository: omriza5/OllamaUITesting
           token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
 
       - name: Set up Python
