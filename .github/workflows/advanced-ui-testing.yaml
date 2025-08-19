@@ -61,7 +61,7 @@ jobs:
       - name: Install Firefox and GeckoDriver
         if: matrix.browser == 'firefox'
         run: |
-          udo apt-get update
+          sudo apt-get update
           sudo apt-get install -y wget tar
           # Remove Snap Firefox if installed
           sudo snap remove firefox || true
