@@ -66,7 +66,7 @@ export function Sidebar({
           variant="ghost"
           className="flex justify-between w-full h-14 text-sm xl:text-lg font-normal items-center "
         >
-          <div className="flex gap-3 items-center ">
+          <div className="flex gap-3 items-center">
             {!isCollapsed && !isMobile && (
               <Image
                 src="/ollama.png"
