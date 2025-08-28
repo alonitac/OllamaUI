@@ -3,10 +3,11 @@
 # .github/workflows/ui-testing.yaml
 name: Advanced Selenium UI Tests
 
+
 on:
   pull_request:
     branches:
-     - main
+     - master
 
   workflow_dispatch:
     inputs:
@@ -58,6 +59,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install allure-pytest
         
     - name: Install Chrome and ChromeDriver
       if: matrix.browser == 'chrome'
@@ -65,11 +67,23 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
         
-    - name: Install Firefox and GeckoDriver
+    - name: Install Firefox binary and GeckoDriver
       if: matrix.browser == 'firefox'
       run: |
         sudo apt-get update
-        sudo apt-get install -y firefox
+        sudo apt-get install -y wget tar
+        # Remove Snap Firefox if installed
+        sudo snap remove firefox || true
+        # Download official Firefox
+        wget -O firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US"
+        tar xJf firefox.tar.xz
+        sudo mv firefox /opt/firefox
+        sudo ln -s /opt/firefox/firefox /usr/local/bin/firefox
+        # Install GeckoDriver
+        wget https://github.com/mozilla/geckodriver/releases/latest/download/geckodriver-v0.36.0-linux64.tar.gz
+        tar -xvzf geckodriver-v0.36.0-linux64.tar.gz
+        sudo mv geckodriver /usr/local/bin/
+        sudo chmod +x /usr/local/bin/geckodriver
         
     - name: Run Selenium tests
       env:
@@ -77,7 +91,8 @@ jobs:
         BROWSER: ${{ matrix.browser }}
         SCREEN_WIDTH: ${{ matrix.resolution.width }}
         SCREEN_HEIGHT: ${{ matrix.resolution.height }}
-        OLLAMA_URL: "http://54.247.218.220:3000"
+        RESOLUTION: ${{ matrix.resolution.name }}
+        OLLAMA_URL: "http://3.248.209.42:3000"
         TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
         ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
       run: |
