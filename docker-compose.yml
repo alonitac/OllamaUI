@@ -3,8 +3,13 @@ services:
     image: ${YOLO_IMAGE}
     ports:
       - "${YOLO_PORT}:${YOLO_PORT}"
-    # volumes:
-    #   - ./uploads:/app/uploads
+    volumes:
+      - ./uploads:/app/uploads
+    environment:
+      - DB_BACKEND=${DB_BACKEND}
+      - DATABASE_URL=${DATABASE_URL}
+    depends_on:
+      - postgres
 
   ollama-ui:
     image: ${OLLAMA_UI_IMAGE}
@@ -12,3 +17,17 @@ services:
       - "${OLLAMA_UI_PORT}:${OLLAMA_UI_PORT}"
     environment:
       - YOLO_SERVICE=${YOLO_SERVICE}
+
+  postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
