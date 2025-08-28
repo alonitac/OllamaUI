@@ -6,6 +6,7 @@ services:
       POSTGRES_PASSWORD: pass
       POSTGRES_DB: db
 
+
   yolo:
     image: tameer/yolo:0.0.1
     environment:
