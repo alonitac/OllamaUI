@@ -1,12 +1,12 @@
 services:
   yolo:
-    image: omriza5/yolo:0.0.1
+    image: ${YOLO_IMAGE}
     ports:
-      - "8080:8080"
+      - "${YOLO_PORT}:${YOLO_PORT}"
     # volumes:
     #   - ./uploads:/app/uploads
 
   ollama-ui:
-    image: omriza5/ollama-ui:0.0.1
+    image: ${OLLAMA_UI_IMAGE}
     ports:
-      - "3000:3000"
+      - "${OLLAMA_UI_PORT}:${OLLAMA_UI_PORT}"
