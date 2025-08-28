@@ -10,3 +10,5 @@ services:
     image: ${OLLAMA_UI_IMAGE}
     ports:
       - "${OLLAMA_UI_PORT}:${OLLAMA_UI_PORT}"
+    environment:
+      - YOLO_SERVICE=${YOLO_SERVICE}
