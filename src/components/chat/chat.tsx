@@ -58,6 +58,7 @@ export default function Chat({ initialMessages, id, isMobile }: ChatProps) {
   const setBase64Images = useChatStore((state) => state.setBase64Images);
   const saveMessages = useChatStore((state) => state.saveMessages);
   const getMessagesById = useChatStore((state) => state.getMessagesById);
+  const currentImageName = useChatStore((state) => state.currentImageName);
   const router = useRouter();
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -83,6 +84,8 @@ export default function Chat({ initialMessages, id, isMobile }: ChatProps) {
       ...(base64Images && {
         data: {
           images: base64Images,
+          chatId: id,
+          imageName: currentImageName,
         },
         experimental_attachments: attachments,
       }),
