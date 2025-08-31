@@ -1,9 +1,50 @@
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+const s3 = new S3Client({
+  region: process.env.AWS_REGION!,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+async function uploadImageToS3(
+  image: Blob | Buffer,
+  chatId: string,
+  imageName: string
+): Promise<string> {
+  const Bucket = "omri-zaher-yolo";
+  const Key = `${chatId}/original/${imageName}`;
+
+  // Detect content type from imageName extension
+  let ContentType = "application/octet-stream";
+  if (imageName.endsWith(".jpg") || imageName.endsWith(".jpeg")) {
+    ContentType = "image/jpeg";
+  } else if (imageName.endsWith(".png")) {
+    ContentType = "image/png";
+  }
+  const arrayBuffer = await image.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+  const command = new PutObjectCommand({
+    Bucket,
+    Key,
+    Body: uint8Array,
+    ContentType,
+  });
+
+  await s3.send(command);
+
+  return `https://${Bucket}.s3.amazonaws.com/${Key}`;
+}
 
 export async function POST(req: Request) {
   // Destructure request data
   const { messages, selectedModel, data } = await req.json();
+  // Extract image name and chat id from data
+  const imageName = data?.imageName;
+  const chatId = data?.chatId;
 
   // Remove experimental_attachments from each message
   const cleanedMessages = messages.map((message: any) => {
@@ -23,18 +64,30 @@ export async function POST(req: Request) {
       const response = await fetch(imageUrl);
       const blob = await response.blob();
 
+      try {
+        await uploadImageToS3(blob, chatId, imageName || "image.jpg");
+      } catch (err) {
+        throw new Error(
+          "S3_ERROR: " +
+            (err instanceof Error ? err.message : "Unknown S3 upload error")
+        );
+      }
       // Create FormData for the prediction API
       const formData = new FormData();
-      formData.append("file", blob, "image.jpg");
+      formData.append("file", blob, imageName || "image.jpg");
+
+      // Build YOLO service URL with query params
+      const yoloUrl = `http://${
+        process.env.YOLO_SERVICE_DEV
+      }/predict?img_name=${encodeURIComponent(
+        imageName || "image.jpg"
+      )}&chat_id=${encodeURIComponent(chatId || "")}`;
 
       // Call the object detection API
-      const predictionResponse = await fetch(
-        `http://${process.env.YOLO_SERVICE}/predict`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      const predictionResponse = await fetch(yoloUrl, {
+        method: "POST",
+        body: formData,
+      });
 
       if (!predictionResponse.ok) {
         throw new Error(`Prediction API error: ${predictionResponse.status}`);
@@ -45,24 +98,30 @@ export async function POST(req: Request) {
       // Format the detection results for chat
       message = `🔍 **Object Detection Results**
 
-**Detection Count:** ${predictionResult.detection_count}
-**Detected Objects:** ${predictionResult.labels.join(", ")}
-**Prediction ID:** ${predictionResult.prediction_uid}
+          **Detection Count:** ${predictionResult.detection_count}
+          **Detected Objects:** ${predictionResult.labels.join(", ")}
+          **Prediction ID:** ${predictionResult.prediction_uid}
 
-I've analyzed your image and detected ${
-        predictionResult.detection_count
-      } object(s). The detected objects include: ${predictionResult.labels.join(
-        ", "
-      )}.`;
+          detected ${predictionResult.detection_count} object(s). 
+           The detected objects include: ${predictionResult.labels.join(
+             ", "
+           )}.`;
     } catch (error) {
       console.error("Object detection error:", error);
-      message = `❌ **Object Detection Error**
-
-Sorry, I encountered an error while processing your image: ${
-        error instanceof Error ? error.message : "Unknown error"
+      if (
+        error instanceof Error &&
+        typeof error.message === "string" &&
+        error.message.startsWith("S3_ERROR:")
+      ) {
+        message = "Upload to S3 failed. Please try again.";
+      } else {
+        message = `❌ **Object Detection Error**
+            Sorry, I encountered an error while processing your image: ${
+              error instanceof Error ? error.message : "Unknown error"
+            }
+  
+            Please make sure the object detection service is running on localhost:8080.`;
       }
-
-Please make sure the object detection service is running on localhost:8080.`;
     }
   }
 
