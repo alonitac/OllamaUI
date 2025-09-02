@@ -16,7 +16,9 @@ services:
     ports:
       - "${OLLAMA_UI_PORT}:${OLLAMA_UI_PORT}"
     environment:
+      - ENV=${ENV}
       - YOLO_SERVICE=${YOLO_SERVICE}
+      - YOLO_SERVICE_DEV=${YOLO_SERVICE_DEV}
 
   postgres:
     image: postgres:16
