@@ -1,0 +1,55 @@
+name: Simple Deploy to EC2
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Get code
+      uses: actions/checkout@v4
+
+    - name: Build and push Docker image
+      run: |
+        # Login to DockerHub
+        echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+        
+        TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
+        
+        # Build the image with a simple tag
+        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG .
+        
+        # Push the image to DockerHub
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG
+        
+        # Save the tag for later *steps* (if you need the tag value in another JOB, use artifacts, as seen in class)
+        echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+
+    - name: Copy docker-compose file to EC2
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: $ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: "docker-compose.yaml"
+        target: "/home/ubuntu/"
+
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+                   
+          # Stop and remove old containers
+          docker-compose down
+          
+          echo """
+          OLLAMA_UI_IMG_TAG={{ env.IMAGE_TAG }}
+          """ > .env
+          
+          docker-compose up -d
