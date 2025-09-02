@@ -72,7 +72,9 @@ export async function POST(req: Request) {
 
       // Build YOLO service URL with query params
       const yoloUrl = `http://${
-        process.env.YOLO_SERVICE_DEV
+        process.env.ENV === "development"
+          ? process.env.YOLO_SERVICE_DEV
+          : process.env.YOLO_SERVICE
       }/predict?img_name=${encodeURIComponent(
         imageName || "image.jpg"
       )}&chat_id=${encodeURIComponent(chatId || "")}`;
