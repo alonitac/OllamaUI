@@ -1,0 +1,155 @@
+name: E2E Deploy & Test (EC2)
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE_NAME: ollama
+      # Browsers/resolutions you want to test (space-separated lists)
+      BROWSERS: "chrome firefox"
+      RESOLUTIONS: "1920x1080 1366x768"
+
+    steps:
+      - name: Checkout OllamaUI
+        uses: actions/checkout@v4
+
+      # Log in to Docker Hub (use a token, not your password)
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Compute a unique tag for this build
+      - name: Compute image tag
+        run: echo "IMAGE_TAG=${GITHUB_SHA}-${GITHUB_RUN_ID}" >> $GITHUB_ENV
+
+      # Build & push the UI image
+      - name: Build & push OllamaUI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+      # Copy docker-compose.yml to EC2 (from this repo)
+      - name: Copy docker-compose.yml to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/home/ubuntu/"
+
+      # Deploy on EC2
+      - name: Deploy stack on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+
+            # Ensure docker compose plugin exists
+            if ! docker compose version >/dev/null 2>&1; then
+              sudo apt-get update -y
+              sudo apt-get install -y docker-compose-plugin
+            fi
+
+            cd /home/ubuntu
+
+            # Pull latest images just in case
+            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" -p "${{ secrets.DOCKERHUB_TOKEN }}"
+
+            # Decide YOLO image tag for testing:
+            # Use a fixed secret (recommended) or 'latest' as a fallback.
+            YOLO_TAG="${{ secrets.YOLO_IMAGE_TAG }}"
+            if [ -z "$YOLO_TAG" ]; then YOLO_TAG="latest"; fi
+
+            cat > .env <<EOF
+            OLLAMA_UI_IMAGE=${{ secrets.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+            YOLO_IMAGE=${{ secrets.DOCKERHUB_NAMESPACE }}/yolo:${YOLO_TAG}
+            POSTGRES_DB=predictions
+            POSTGRES_USER=postgres
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            YOLO_PORT=8080
+            OLLAMA_UI_PORT=3000
+            EOF
+
+            # Bring up / refresh the stack
+            docker compose down
+            docker compose pull || true
+            docker compose up -d
+
+            # Wait for UI to respond
+            for i in {1..30}; do
+              if curl -fsS http://localhost:3000 >/dev/null; then
+                echo "UI is up"; break
+              fi
+              echo "Waiting for UI... ($i)"
+              sleep 5
+            done
+
+      # --- Selenium E2E tests (run from the GitHub runner against the EC2 public URL) ---
+
+      - name: Checkout tests (OllamaUITesting)
+        uses: actions/checkout@v4
+        with:
+          repository: YOUR_GITHUB_ORG_OR_USER/OllamaUITesting
+          path: tests
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test deps
+        working-directory: tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # If your tests need browsers/drivers, install here or use webdriver-manager in tests
+
+      - name: Create Allure environment metadata
+        working-directory: tests
+        run: |
+          mkdir -p allure-results
+          cat > allure-results/environment.properties <<EOF
+          OLLAMA_UI_IMAGE=${{ secrets.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          YOLO_IMAGE=${{ secrets.DOCKERHUB_NAMESPACE }}/yolo:${{ secrets.YOLO_IMAGE_TAG || 'latest' }}
+          POSTGRES_IMAGE=postgres:15
+          BASE_URL=http://${{ secrets.EC2_HOST }}:3000
+          EOF
+
+      - name: Run Selenium tests (matrix via loops)
+        working-directory: tests
+        env:
+          BASE_URL: http://${{ secrets.EC2_HOST }}:3000
+        run: |
+          set -e
+          for B in $BROWSERS; do
+            for R in $RESOLUTIONS; do
+              OUT="allure-results/${B}-${R//\//x}"
+              mkdir -p "$OUT"
+              echo "=== Running tests: browser=$B res=$R ==="
+              pytest -q \
+                --browser "$B" \
+                --window-size "$R" \
+                --base-url "$BASE_URL" \
+                --alluredir="$OUT"
+            done
+          done
+
+      - name: Upload Allure results
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: tests/allure-results
