@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 
-RUN npm ci
+RUN npm i
 
 # Set a build-time argument for OLLAMA_URL with a default value
 ARG OLLAMA_URL=http://127.0.0.1:11434
