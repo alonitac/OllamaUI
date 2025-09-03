@@ -24,9 +24,9 @@ jobs:
 
           TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
 
-          # בונים ודוחפים ל-<user>/ollama-ui (לא ollama)
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG .
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG
+          # בונים ודוחפים ל-<user>/ollamaui (לא ollama)
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollamaui:$TAG .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollamaui:$TAG
 
           # שומרים את ה-TAG לשימוש בשלבים הבאים
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
