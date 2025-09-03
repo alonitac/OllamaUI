@@ -86,7 +86,7 @@ jobs:
           BROWSER: ${{ matrix.browser }}
           SCREEN_WIDTH: ${{ matrix.resolution.width }}
           SCREEN_HEIGHT: ${{ matrix.resolution.height }}
-          OLLAMA_URL: ${{ secrets.HOST }}
+          OLLAMA_URL: ${{ secrets.OLLAMA_FULL_HOST }}
           TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
           ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
         run: |
