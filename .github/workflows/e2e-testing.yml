@@ -37,6 +37,22 @@ jobs:
           source: "docker-compose.yml"
           target: "/home/ubuntu/"
 
+      - name: Create .env file
+        run: |
+          echo "OLLAMA_UI_IMAGE=${IMAGE_TAG}" >> .env
+          echo "ENV=testing" >> .env
+          echo "YOLO_IMAGE=${{ secrets.YOLO_IMAGE }}" >> .env
+          echo "YOLO_PORT=${{ secrets.YOLO_PORT }}" >> .env
+          echo "OLLAMA_FULL_HOST=${{ secrets.OLLAMA_FULL_HOST }}" >> .env
+          echo "OLLAMA_UI_PORT=${{ secrets.OLLAMA_UI_PORT }}" >> .env
+          echo "DB_BACKEND=${{ secrets.DB_BACKEND }}" >> .env
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+          echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
+          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
+          echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}" >> .env
+          echo "POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}" >> .env
+          echo "YOLO_SERVICE=${{ secrets.YOLO_SERVICE }}" >> .env
+
       - name: Copy .env file to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -48,17 +64,12 @@ jobs:
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          YOLO_IMAGE: ${{ env.YOLO_IMAGE }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # Stop and remove old containers
-            echo "OLLAMA_UI_IMAGE=${IMAGE_TAG}" >> .env
-            echo "ENV=testing" >> .env
-
             docker compose down
 
             docker compose up -d
