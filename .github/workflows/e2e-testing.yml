@@ -54,6 +54,7 @@ jobs:
             docker-compose up -d
   selenium-matrix-tests:
     runs-on: ubuntu-latest
+    needs: deploy
 
     strategy:
       matrix:
