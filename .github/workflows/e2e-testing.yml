@@ -49,6 +49,18 @@ jobs:
 
             echo """
             OLLAMA_UI_IMG_TAG={{ env.IMAGE_TAG }}
+            OLLAMA_URL={{ secrets.OLLAMA_FULL_HOST }}
+            ENV={{ secrets.ENV}}
+            YOLO_PORT=8080
+            OLLAMA_UI_PORT=3000
+            YOLO_SERVICE=yolo:8080
+            YOLO_SERVICE_DEV=localhost:8080
+            POSTGRES_USER=user
+            POSTGRES_PASSWORD=pass
+            POSTGRES_DB=predictions
+            POSTGRES_PORT=5432
+            DATABASE_URL=postgresql://user:pass@postgres/predictions
+            DB_BACKEND=postgres
             """ > .env
 
             docker compose up -d
