@@ -51,7 +51,7 @@ jobs:
             OLLAMA_UI_IMG_TAG={{ env.IMAGE_TAG }}
             """ > .env
 
-            docker-compose up -d
+            docker compose up -d
   selenium-matrix-tests:
     runs-on: ubuntu-latest
     needs: deploy
