@@ -24,7 +24,7 @@ jobs:
 
           # Build and push multi-arch image (amd64 and arm64)
            docker buildx build \
-          --platform linux/amd64,linux/arm64 \
+          --platform linux/arm64 \
           -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG \
           --push .
 
