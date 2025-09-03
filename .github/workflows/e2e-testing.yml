@@ -192,6 +192,189 @@ jobs:
           path: allure-results/
           retention-days: 30
 
+  generate-allure-report:
+    runs-on: ubuntu-latest
+    needs: selenium-matrix-tests
+    if: always()
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Download all Allure results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: allure-results-*
+          path: ./allure-results
+          merge-multiple: true
+
+      - name: Merge Allure Results
+        run: |
+          mkdir -p allure-results
+
+          # Create categories.json for better organization
+          cat > allure-results/categories.json << 'EOF'
+          [
+            {
+              "name": "Desktop Tests",
+              "matchedStatuses": ["passed", "failed", "broken"],
+              "messageRegex": ".*desktop.*"
+            },
+            {
+              "name": "Mobile Tests", 
+              "matchedStatuses": ["passed", "failed", "broken"],
+              "messageRegex": ".*mobile.*"
+            },
+            {
+              "name": "Tablet Tests",
+              "matchedStatuses": ["passed", "failed", "broken"], 
+              "messageRegex": ".*tablet.*"
+            },
+            {
+              "name": "Chrome Tests",
+              "matchedStatuses": ["passed", "failed", "broken"],
+              "messageRegex": ".*chrome.*"
+            },
+            {
+              "name": "Firefox Tests",
+              "matchedStatuses": ["passed", "failed", "broken"],
+              "messageRegex": ".*firefox.*"
+            }
+          ]
+          EOF
+
+          # Create global environment properties
+          cat > allure-results/environment.properties << EOF
+          Test.Framework=Selenium+Pytest
+          CI.Platform=GitHub Actions
+          Test.Types=UI Automation
+          Browsers=Chrome, Firefox
+          Resolutions=Desktop (1920x1080), Laptop (1366x768), Tablet (1024x768), Mobile (375x667)
+          Target.URL=http://${{ secrets.EC2_HOST }}:3000/
+          Ollama.Image=yosefshawah/ollama-ui:${{ needs.deploy.outputs.ollama_image_tag }}
+          YOLO.Image=yosefshawah/yolo:0.0.3
+          EOF
+
+          # Check if artifacts directory exists and has content
+          if [ -d "./artifacts" ] && [ "$(ls -A ./artifacts)" ]; then
+            echo "Found artifacts, merging..."
+            
+            # Use a counter for truly unique filenames
+            counter=1
+            
+            for dir in ./artifacts/allure-results-*; do
+              if [ -d "$dir" ]; then
+                echo "Processing $dir"
+                
+                # Extract browser and resolution from directory name
+                config_name=$(basename "$dir" | sed 's/allure-results-//')
+                echo "Configuration: $config_name"
+                
+                # Copy all files directly, but with unique names to avoid overwrites
+                for file in "$dir"/*; do
+                  if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    extension="${filename##*.}"
+                    basename_no_ext="${filename%.*}"
+                    
+                    # Create unique filename: original-name-configname-counter.extension
+                    if [ "$filename" = "environment.properties" ]; then
+                      # Skip individual environment.properties files (we have a global one)
+                      continue
+                    else
+                      unique_filename="${basename_no_ext}-${config_name}-${counter}.${extension}"
+                    fi
+                    
+                    cp "$file" "allure-results/${unique_filename}" 2>/dev/null || echo "Could not copy $file"
+                    echo "Copied $filename as $unique_filename"
+                  fi
+                done
+                
+                counter=$((counter + 1))
+              fi
+            done
+            
+            # Show what we have
+            echo "Final allure-results contents:"
+            ls -la allure-results/
+            echo "JSON files count:"
+            ls -1 allure-results/*.json 2>/dev/null | wc -l
+            
+          else
+            echo "No artifacts found, creating empty results directory"
+            touch allure-results/.gitkeep
+          fi
+
+      - name: Get Allure history
+        uses: actions/checkout@v4
+        if: always()
+        continue-on-error: true
+        with:
+          ref: gh-pages
+          path: gh-pages
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "microsoft"
+          java-version: "17"
+
+      - name: Setup Allure
+        run: |
+          wget -q -L https://github.com/allure-framework/allure2/releases/download/2.25.0/allure-2.25.0.tgz -O allure-2.25.0.tgz
+          sudo tar -xzf allure-2.25.0.tgz -C /opt/
+          sudo ln -sf /opt/allure-2.25.0/bin/allure /usr/bin/allure
+          allure --version
+
+      - name: Debug Allure files
+        run: |
+          echo "Current directory contents:"
+          ls -la
+          echo "Artifacts directory contents:"
+          ls -la ./artifacts/ 2>/dev/null || echo "No artifacts directory"
+          echo "Allure results directory contents:"
+          ls -la allure-results/ 2>/dev/null || echo "No allure-results directory"
+
+      - name: Generate Allure Report
+        run: |
+          # Create allure-results directory if it doesn't exist
+          mkdir -p allure-results
+
+          # Copy history if gh-pages exists and has history
+          if [ -d "gh-pages" ] && [ -d "gh-pages/allure-history" ]; then
+            echo "Copying existing Allure history..."
+            cp -r gh-pages/allure-history allure-results/history
+          else
+            echo "No existing Allure history found, starting fresh..."
+          fi
+
+          # Generate report
+          allure generate allure-results --clean --output allure-report
+
+          # Ensure proper permissions and structure
+          chmod -R 755 allure-report
+
+          # Copy history for next run
+          cp -r allure-report/history allure-report/allure-history 2>/dev/null || echo "No history to preserve"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: allure-report
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
 
 
@@ -206,195 +389,40 @@ jobs:
 
 
 
-
-
-# name: Simple Deploy to EC2
+# name: E2E Testing
 
 # on:
 #   pull_request:
-#     branches: [ master ]   # ודא שזה באמת branch ברירת המחדל שלך
+#     branches: [main]
 
 # jobs:
 #   deploy:
 #     runs-on: ubuntu-latest
-
-#     steps:
-#       - name: Get code
-#         uses: actions/checkout@v4
-
-#       - name: Build and push Docker image
-#         run: |
-#           # Login to DockerHub
-#           echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-
-#           TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
-
-#           # בונים ודוחפים ל-<user>/ollamaui (לא ollama)
-#           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG .
-#           docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG
-
-#           # שומרים את ה-TAG לשימוש בשלבים הבאים
-#           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
-
-#       - name: Copy docker-compose to EC2
-#         uses: appleboy/scp-action@v0.1.7
-#         with:
-#           host: ${{ secrets.EC2_HOST }}
-#           username: ubuntu
-#           key: ${{ secrets.EC2_SSH_KEY }}
-#           source: "docker-compose.yml"     # ודא שהשם בקוד הוא .yml
-#           target: "/home/ubuntu/"
-
-#       - name: Deploy on EC2 via SSH
-#         uses: appleboy/ssh-action@v1.0.3
-#         with:
-#           host: ${{ secrets.EC2_HOST }}
-#           username: ubuntu
-#           key: ${{ secrets.EC2_SSH_KEY }}
-#           script: |
-#             set -euo pipefail
-#             cd /home/ubuntu
-
-#             # מסירים podman-docker במקרה והוא מותקן
-#             sudo apt-get remove -y podman-docker podman || true
-
-#             # מתקינים Docker Engine + Compose v2 אם צריך
-#             if ! command -v docker >/dev/null 2>&1; then
-#               sudo apt-get update -y
-#               sudo apt-get install -y ca-certificates curl gnupg
-#               sudo install -m 0755 -d /etc/apt/keyrings
-#               curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-#               echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-#               https://download.docker.com/linux/ubuntu $(. /etc/os-release; echo $VERSION_CODENAME) stable" | \
-#                 sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-#               sudo apt-get update -y
-#               sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-#               sudo systemctl enable --now docker
-#             fi
-
-#             # Login ל-Docker Hub על השרת (גם לפאבליק זה מזרז/מונע rate-limit)
-#             echo "${{ secrets.DOCKERHUB_PASSWORD }}" | sudo docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-#             # תקיית mount ל-uploads אם נדרש ע"י compose
-#             sudo mkdir -p uploads
-
-#             # קובץ .env לאינטרפולציה ב-compose
-#             cat > .env <<EOF
-#             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-#             OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
-#             EOF
-
-#             # דיפלוי
-#             sudo docker compose --env-file .env pull
-#             sudo docker compose --env-file .env down || true
-#             sudo docker compose --env-file .env up -d
-#             sudo docker compose --env-file .env ps
-
-
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # - name: Copy docker-compose file to EC2
-    #   uses: appleboy/scp-action@v0.1.7
-    #   with:
-    #         host: ${{ secrets.EC2_HOST }}
-    #         username: ubuntu
-    #         key: ${{ secrets.EC2_SSH_KEY }}
-    #         source: "docker-compose.yml"     # make sure the file name matches your repo
-    #         target: "/home/ubuntu/"
-
-    # - name: Deploy to EC2
-    #   uses: appleboy/ssh-action@v1.0.3
-    #   with:
-    #         host: ${{ secrets.EC2_HOST }}
-    #         username: ubuntu
-    #         key: ${{ secrets.EC2_SSH_KEY }}
-    #         # optionally pass envs: IMAGE_TAG  (לא חובה אם משתמשים בהרחבה למטה)
-    #         script: |
-    #             set -euo pipefail
-    #             cd /home/ubuntu
-
-    #             # Write .env for compose interpolation (values rendered by GitHub on the runner)
-    #             cat > .env <<EOF
-    #             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-    #             OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
-    #             EOF
-
-    #             # Bring the stack up (Compose v2)
-    #             sudo docker compose --env-file .env pull || true
-    #             sudo docker compose --env-file .env down || true
-    #             sudo docker compose --env-file .env up -d
-
-    #             sudo docker compose --env-file .env ps
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# name: Deploy to EC2
-
-# on:
-#   pull_request:
-#     branches: [master]
-
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
+#     outputs:
+#       ollama_image_tag: ${{ steps.compute_tag.outputs.tag }}
 
 #     steps:
 #       - name: Checkout code
 #         uses: actions/checkout@v4
+
+#       - name: Compute image tag
+#         id: compute_tag
+#         run: |
+#           TAG="${GITHUB_SHA}-$(date +%Y%m%d-%H%M%S)"
+#           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+#           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
 #       - name: Build and push Docker image
 #         run: |
 #           # Login to DockerHub
 #           echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
 
-#           TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
 
 #           # Build the image with the tag
-#           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG .
+#           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$IMAGE_TAG .
 
 #           # Push the image to DockerHub
-#           docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG
-
-#           # Save the tag for later steps
-#           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+#           docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$IMAGE_TAG
 
 #       - name: Copy docker-compose file to EC2
 #         uses: appleboy/scp-action@v0.1.7
@@ -427,7 +455,7 @@ jobs:
 
 #             # Create .env file with the new image tag
 #             cat > .env << EOF
-#             OLLAMA_UI_IMG_TAG=${{ env.OLLAMA_UI_IMG }}
+#             OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
 #             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
 #             EOF
 
@@ -435,86 +463,342 @@ jobs:
 #             docker-compose pull
 #             docker-compose up -d
 
-
-
-
-
-
-
-
-
-
-
-
-# name: Simple Deploy to EC2
-
-# on:
-#   pull_request:
-#     branches: [ master ]
-
-
-
-# jobs:
-#   deploy:
+#   selenium-matrix-tests:
 #     runs-on: ubuntu-latest
+#     needs: deploy
+
+#     strategy:
+#       matrix:
+#         browser: [chrome, firefox]
+#         resolution:
+#           - { name: "desktop-full", width: 1920, height: 1080 }
+#           - { name: "laptop", width: 1366, height: 768 }
+#           - { name: "tablet", width: 1024, height: 768 }
+#           - { name: "mobile", width: 375, height: 667 }
+#       fail-fast: false
+
+#     name: Test ${{ matrix.browser }} - ${{ matrix.resolution.name }}
 
 #     steps:
-#     - name: Get code
-#       uses: actions/checkout@v4
+#       - name: Checkout OllamaUITesting
+#         uses: actions/checkout@v4
+#         with:
+#           repository: yosefshawah/OllamaUITesting
+#           token: ${{ secrets.GITHUB_TOKEN }}
+#           path: .
+#           clean: true
 
-#     - name: Login to Docker Hub
-#       run: |
-#         echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+#       - name: Debug repo path
+#         run: |
+#           pwd
+#           ls -la
 
-#     - name: Build & push OllamaUI image
-#       id: build
-#       shell: bash
-#       run: |
-#         TAG="${GITHUB_SHA}-$(date +%Y%m%d-%H%M%S)"
-#         IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/ollama:${TAG}"
+#       - name: Set up Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: "3.11"
 
-#         echo "Building ${IMAGE} ..."
-#         docker build -t "${IMAGE}" .
+#       - name: Install dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+#           pip install -r requirements.txt
+#           pip install allure-pytest
 
-#         echo "Pushing ${IMAGE} ..."
-#         docker push "${IMAGE}"
+#       - name: Install Chrome and ChromeDriver
+#         if: matrix.browser == 'chrome'
+#         run: |
+#           sudo apt-get update
+#           sudo apt-get install -y google-chrome-stable
 
-#         # expose TAG and full image ref to later steps in THIS job
-#         echo "TAG=${TAG}"            >> "$GITHUB_OUTPUT"
-#         echo "IMAGE_FULL=${IMAGE}"   >> "$GITHUB_OUTPUT"
+#       - name: Install Firefox and GeckoDriver
+#         if: matrix.browser == 'firefox'
+#         run: |
+#           sudo apt-get update
+#           sudo apt-get install -y wget tar
+#           sudo snap remove firefox || true
+#           wget -O firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US"
+#           tar xJf firefox.tar.xz
+#           sudo mv firefox /opt/firefox
+#           sudo ln -s /opt/firefox/firefox /usr/local/bin/firefox
+#           wget https://github.com/mozilla/geckodriver/releases/latest/download/geckodriver-v0.36.0-linux64.tar.gz
+#           tar -xvzf geckodriver-v0.36.0-linux64.tar.gz
+#           sudo mv geckodriver /usr/local/bin/
+#           sudo chmod +x /usr/local/bin/geckodriver
 
-#     - name: Copy docker-compose.yml to EC2
-#       uses: appleboy/scp-action@v0.1.7
-#       with:
-#         host: ${{ secrets.EC2_HOST }}
-#         username: ubuntu                  # <-- fixed (was $ubuntu)
-#         key: ${{ secrets.EC2_SSH_KEY }}
-#         source: "docker-compose.yml"
-#         target: "/home/ubuntu/"
-
-#     - name: Deploy on EC2
-#       uses: appleboy/ssh-action@v1.0.3
-#       with:
-#         host: ${{ secrets.EC2_HOST }}
-#         username: ubuntu
-#         key: ${{ secrets.EC2_SSH_KEY }}
-#         script: |
-#           set -euo pipefail
-#           cd /home/ubuntu
-
-#           # Write/override .env for Compose (Compose auto-loads .env in this dir)
-#           cat > .env <<EOF
-#           # Full image reference for the UI (repo:tag)
-#           OLLAMA_UI_IMG=${{ steps.build.outputs.IMAGE_FULL }}
+#       - name: Create Allure environment properties
+#         run: |
+#           mkdir -p allure-results
+#           cat > allure-results/environment.properties << EOF
+#           Browser=${{ matrix.browser }}
+#           Resolution=${{ matrix.resolution.name }}
+#           Screen.Width=${{ matrix.resolution.width }}
+#           Screen.Height=${{ matrix.resolution.height }}
+#           Test.Environment=${{ matrix.browser }}-${{ matrix.resolution.name }}
+#           Ollama.URL=http://${{ secrets.EC2_HOST }}:3000/
+#           Headless.Mode=true
+#           Ollama.Image=yosefshawah/ollama-ui:${{ needs.deploy.outputs.ollama_image_tag }}
+#           YOLO.Image=yosefshawah/yolo:0.0.3
 #           EOF
 
-#           echo "Using OLLAMA_UI_IMG=$(grep '^OLLAMA_UI_IMG' .env | cut -d= -f2-)"
+#       - name: Inject Allure parameters for matrix run (append-safe)
+#         run: |
+#           if [ -f conftest.py ]; then
+#             cat >> conftest.py << 'PY'
+#           # --- BEGIN AUTO-ADDED: Allure matrix params ---
+#           import os
+#           import pytest
+#           try:
+#               import allure
+#           except Exception:
+#               allure = None
 
-#           # Bring down old stack (ignore if not running), pull, then start
-#           docker compose down || true
-#           docker compose pull || true
-#           docker compose up -d
+#           @pytest.fixture(autouse=True)
+#           def _allure_add_matrix_params():
+#               if not allure:
+#                   return
+#               browser = os.getenv('BROWSER', 'unknown')
+#               res_name = os.getenv('TEST_NAME', 'unknown')
+#               width = os.getenv('SCREEN_WIDTH', '')
+#               height = os.getenv('SCREEN_HEIGHT', '')
+#               try:
+#                   allure.dynamic.parameter('browser', browser)
+#                   allure.dynamic.parameter('resolution', res_name)
+#                   if width and height:
+#                       allure.dynamic.parameter('screen', f"{width}x{height}")
+#               except Exception:
+#                   # Do not fail tests if allure is unavailable
+#                   pass
+#           # --- END AUTO-ADDED ---
+#           PY
+#           else
+#             cat > conftest.py << 'PY'
+#           import os
+#           import pytest
+#           try:
+#               import allure
+#           except Exception:
+#               allure = None
 
-#           # Optional: show status
-#           docker compose ps
+#           @pytest.fixture(autouse=True)
+#           def _allure_add_matrix_params():
+#               if not allure:
+#                   return
+#               browser = os.getenv('BROWSER', 'unknown')
+#               res_name = os.getenv('TEST_NAME', 'unknown')
+#               width = os.getenv('SCREEN_WIDTH', '')
+#               height = os.getenv('SCREEN_HEIGHT', '')
+#               try:
+#                   allure.dynamic.parameter('browser', browser)
+#                   allure.dynamic.parameter('resolution', res_name)
+#                   if width and height:
+#                       allure.dynamic.parameter('screen', f"{width}x{height}")
+#               except Exception:
+#                   # Do not fail tests if allure is unavailable
+#                   pass
+#           PY
+#           fi
+
+#       - name: Run Selenium tests
+#         env:
+#           HEADLESS: true
+#           BROWSER: ${{ matrix.browser }}
+#           SCREEN_WIDTH: ${{ matrix.resolution.width }}
+#           SCREEN_HEIGHT: ${{ matrix.resolution.height }}
+#           OLLAMA_URL: http://${{ secrets.EC2_HOST }}:3000/
+#           TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
+#           ALLURE_RESULTS_DIR: allure-results
+#         run: |
+#           pytest tests/ -v --tb=short --alluredir=allure-results
+
+#       - name: Upload Allure Results
+#         uses: actions/upload-artifact@v4
+#         if: always()
+#         with:
+#           name: allure-results-${{ matrix.browser }}-${{ matrix.resolution.name }}
+#           path: allure-results/
+#           retention-days: 30
+
+#   generate-allure-report:
+#     runs-on: ubuntu-latest
+#     needs: selenium-matrix-tests
+#     if: always()
+
+#     permissions:
+#       contents: read
+#       pages: write
+#       id-token: write
+
+#     environment:
+#       name: github-pages
+#       url: ${{ steps.deployment.outputs.page_url }}
+
+#     steps:
+#       - name: Setup Pages
+#         uses: actions/configure-pages@v4
+
+#       - name: Download all Allure results
+#         uses: actions/download-artifact@v4
+#         with:
+#           pattern: allure-results-*
+#           path: ./allure-results
+#           merge-multiple: true
+
+#       - name: Merge Allure Results
+#         run: |
+#           mkdir -p allure-results
+
+#           # Create categories.json for better organization
+#           cat > allure-results/categories.json << 'EOF'
+#           [
+#             {
+#               "name": "Desktop Tests",
+#               "matchedStatuses": ["passed", "failed", "broken"],
+#               "messageRegex": ".*desktop.*"
+#             },
+#             {
+#               "name": "Mobile Tests", 
+#               "matchedStatuses": ["passed", "failed", "broken"],
+#               "messageRegex": ".*mobile.*"
+#             },
+#             {
+#               "name": "Tablet Tests",
+#               "matchedStatuses": ["passed", "failed", "broken"], 
+#               "messageRegex": ".*tablet.*"
+#             },
+#             {
+#               "name": "Chrome Tests",
+#               "matchedStatuses": ["passed", "failed", "broken"],
+#               "messageRegex": ".*chrome.*"
+#             },
+#             {
+#               "name": "Firefox Tests",
+#               "matchedStatuses": ["passed", "failed", "broken"],
+#               "messageRegex": ".*firefox.*"
+#             }
+#           ]
+#           EOF
+
+#           # Create global environment properties
+#           cat > allure-results/environment.properties << EOF
+#           Test.Framework=Selenium+Pytest
+#           CI.Platform=GitHub Actions
+#           Test.Types=UI Automation
+#           Browsers=Chrome, Firefox
+#           Resolutions=Desktop (1920x1080), Laptop (1366x768), Tablet (1024x768), Mobile (375x667)
+#           Target.URL=http://${{ secrets.EC2_HOST }}:3000/
+#           Ollama.Image=yosefshawah/ollama-ui:${{ needs.deploy.outputs.ollama_image_tag }}
+#           YOLO.Image=yosefshawah/yolo:0.0.3
+#           EOF
+
+#           # Check if artifacts directory exists and has content
+#           if [ -d "./artifacts" ] && [ "$(ls -A ./artifacts)" ]; then
+#             echo "Found artifacts, merging..."
+            
+#             # Use a counter for truly unique filenames
+#             counter=1
+            
+#             for dir in ./artifacts/allure-results-*; do
+#               if [ -d "$dir" ]; then
+#                 echo "Processing $dir"
+                
+#                 # Extract browser and resolution from directory name
+#                 config_name=$(basename "$dir" | sed 's/allure-results-//')
+#                 echo "Configuration: $config_name"
+                
+#                 # Copy all files directly, but with unique names to avoid overwrites
+#                 for file in "$dir"/*; do
+#                   if [ -f "$file" ]; then
+#                     filename=$(basename "$file")
+#                     extension="${filename##*.}"
+#                     basename_no_ext="${filename%.*}"
+                    
+#                     # Create unique filename: original-name-configname-counter.extension
+#                     if [ "$filename" = "environment.properties" ]; then
+#                       # Skip individual environment.properties files (we have a global one)
+#                       continue
+#                     else
+#                       unique_filename="${basename_no_ext}-${config_name}-${counter}.${extension}"
+#                     fi
+                    
+#                     cp "$file" "allure-results/${unique_filename}" 2>/dev/null || echo "Could not copy $file"
+#                     echo "Copied $filename as $unique_filename"
+#                   fi
+#                 done
+                
+#                 counter=$((counter + 1))
+#               fi
+#             done
+            
+#             # Show what we have
+#             echo "Final allure-results contents:"
+#             ls -la allure-results/
+#             echo "JSON files count:"
+#             ls -1 allure-results/*.json 2>/dev/null | wc -l
+            
+#           else
+#             echo "No artifacts found, creating empty results directory"
+#             touch allure-results/.gitkeep
+#           fi
+
+#       - name: Get Allure history
+#         uses: actions/checkout@v4
+#         if: always()
+#         continue-on-error: true
+#         with:
+#           ref: gh-pages
+#           path: gh-pages
+#           fetch-depth: 0
+
+#       - name: Setup Java
+#         uses: actions/setup-java@v4
+#         with:
+#           distribution: "microsoft"
+#           java-version: "17"
+
+#       - name: Setup Allure
+#         run: |
+#           wget -q -L https://github.com/allure-framework/allure2/releases/download/2.25.0/allure-2.25.0.tgz -O allure-2.25.0.tgz
+#           sudo tar -xzf allure-2.25.0.tgz -C /opt/
+#           sudo ln -sf /opt/allure-2.25.0/bin/allure /usr/bin/allure
+#           allure --version
+
+#       - name: Debug Allure files
+#         run: |
+#           echo "Current directory contents:"
+#           ls -la
+#           echo "Artifacts directory contents:"
+#           ls -la ./artifacts/ 2>/dev/null || echo "No artifacts directory"
+#           echo "Allure results directory contents:"
+#           ls -la allure-results/ 2>/dev/null || echo "No allure-results directory"
+
+#       - name: Generate Allure Report
+#         run: |
+#           # Create allure-results directory if it doesn't exist
+#           mkdir -p allure-results
+
+#           # Copy history if gh-pages exists and has history
+#           if [ -d "gh-pages" ] && [ -d "gh-pages/allure-history" ]; then
+#             echo "Copying existing Allure history..."
+#             cp -r gh-pages/allure-history allure-results/history
+#           else
+#             echo "No existing Allure history found, starting fresh..."
+#           fi
+
+#           # Generate report
+#           allure generate allure-results --clean --output allure-report
+
+#           # Ensure proper permissions and structure
+#           chmod -R 755 allure-report
+
+#           # Copy history for next run
+#           cp -r allure-report/history allure-report/allure-history 2>/dev/null || echo "No history to preserve"
+
+#       - name: Upload Pages artifact
+#         uses: actions/upload-pages-artifact@v3
+#         with:
+#           path: allure-report
+
+#       - name: Deploy to GitHub Pages
+#         id: deployment
+#         uses: actions/deploy-pages@v4
 
