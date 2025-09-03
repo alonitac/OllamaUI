@@ -3,11 +3,11 @@
 
 
 
-name: E2E Testing
+name: Deploy to EC2
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   deploy:
