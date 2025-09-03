@@ -5,78 +5,83 @@ name: Simple Deploy to EC2
 
 on:
   pull_request:
-    branches: [ master ]
+    branches: [ master ]   # ודא שזה באמת branch ברירת המחדל שלך
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Get code
-      uses: actions/checkout@v4
+      - name: Get code
+        uses: actions/checkout@v4
 
-    - name: Build and push Docker image
-      run: |
-        # Login to DockerHub
-        echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-        
-        TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
-        
-        # Build the image with a simple tag
-        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG .
-        
-        # Push the image to DockerHub
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG
-        
-        # Save the tag for later *steps* (if you need the tag value in another JOB, use artifacts, as seen in class)
-        echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+      - name: Build and push Docker image
+        run: |
+          # Login to DockerHub
+          echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
 
-    - name: Deploy on EC2 via SSH
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          set -euo pipefail
-          cd /home/ubuntu
+          TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
 
-          # מסירים podman-docker (כמו אצלך)
-          sudo apt-get remove -y podman-docker podman || true
+          # בונים ודוחפים ל-<user>/ollama-ui (לא ollama)
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG
 
-          # מתקינים Docker Engine + Compose v2 (כמו אצלך)
-          if ! command -v docker >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y ca-certificates curl gnupg
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-            https://download.docker.com/linux/ubuntu $(. /etc/os-release; echo $VERSION_CODENAME) stable" | \
-              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo apt-get update -y
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            sudo systemctl enable --now docker
-          fi
+          # שומרים את ה-TAG לשימוש בשלבים הבאים
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
 
-          # התחברות ל-Docker Hub על השרת (קריטי לריפו פרטי)
-          echo "${{ secrets.DOCKERHUB_PASSWORD }}" | sudo docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+      - name: Copy docker-compose to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml"     # ודא שהשם בקוד הוא .yml
+          target: "/home/ubuntu/"
 
-          # קובץ env לערכי אינטרפולציה של compose
-          cat > .env <<EOF
-          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-          OLLAMA_UI_IMG_TAG=${{ env.OLLAMA_UI_IMG_TAG }}
-          YOLO_IMG_TAG=${{ env.YOLO_IMG_TAG }}
-          EOF
+      - name: Deploy on EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /home/ubuntu
 
-          # עדכון הסטאק
-          sudo docker compose --env-file .env pull
-          sudo docker compose --env-file .env down || true
-          sudo docker compose --env-file .env up -d
-          sudo docker compose --env-file .env ps
-      env:
-        # ודא שה-build שלב קודם קבע את הערכים האלו (או קבע ידנית כאן)
-        OLLAMA_UI_IMG_TAG: ${{ github.sha }}-${{ steps.ts.outputs.now }}
-        YOLO_IMG_TAG: ${{ github.sha }}-${{ steps.ts.outputs.now }}
+            # מסירים podman-docker במקרה והוא מותקן
+            sudo apt-get remove -y podman-docker podman || true
+
+            # מתקינים Docker Engine + Compose v2 אם צריך
+            if ! command -v docker >/dev/null 2>&1; then
+              sudo apt-get update -y
+              sudo apt-get install -y ca-certificates curl gnupg
+              sudo install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/ubuntu $(. /etc/os-release; echo $VERSION_CODENAME) stable" | \
+                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo systemctl enable --now docker
+            fi
+
+            # Login ל-Docker Hub על השרת (גם לפאבליק זה מזרז/מונע rate-limit)
+            echo "${{ secrets.DOCKERHUB_PASSWORD }}" | sudo docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+            # תקיית mount ל-uploads אם נדרש ע"י compose
+            sudo mkdir -p uploads
+
+            # קובץ .env לאינטרפולציה ב-compose
+            cat > .env <<EOF
+            DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+            OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
+            EOF
+
+            # עדכון הסטאק
+            sudo docker compose --env-file .env pull
+            sudo docker compose --env-file .env down || true
+            sudo docker compose --env-file .env up -d
+            sudo docker compose --env-file .env ps
 
 
 
