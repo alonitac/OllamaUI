@@ -19,6 +19,9 @@ jobs:
 
           TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
 
+          # Create a new builder instance with docker-container driver
+          docker buildx create --name mybuilder --use --driver docker-container
+
           # Build and push multi-arch image (amd64 and arm64)
            docker buildx build \
           --platform linux/amd64,linux/arm64 \
@@ -71,8 +74,20 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # Stop and remove old containers
+            docker-compose down || true
+            docker stop $(docker ps -aq) 2>/dev/null || true
+            docker rm $(docker ps -aq) 2>/dev/null || true
+
+            # Remove all images to free space
+            docker rmi $(docker images -q) 2>/dev/null || true
+
+            # Clean up dangling volumes and networks
+            docker volume prune -f || true
+            docker network prune -f || true
+            docker system prune -f || true
+
             echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-            docker compose down
+
             docker compose pull
             docker compose up -d
   selenium-matrix-tests:
