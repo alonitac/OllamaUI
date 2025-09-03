@@ -72,7 +72,7 @@ jobs:
           script: |
             # Stop and remove old containers
             docker compose down
-
+            docker-compose pull
             docker compose up -d
   selenium-matrix-tests:
     runs-on: ubuntu-latest
