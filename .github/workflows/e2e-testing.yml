@@ -91,7 +91,7 @@ jobs:
       - name: Checkout OllamaUITesting
         uses: actions/checkout@v4
         with:
-          repository: tameer/OllamaUITesting
+          repository: tmeraslan/OllamaUITesting
           # אם הפרויקט פרטי – השתמש ב-PAT בתור secret למשל GH_PAT:
           # token: ${{ secrets.GH_PAT }}
           path: .
