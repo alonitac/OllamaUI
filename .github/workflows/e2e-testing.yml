@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ master ]
 
-    
+
 
 jobs:
   deploy:
@@ -37,13 +37,13 @@ jobs:
         echo "TAG=${TAG}"            >> "$GITHUB_OUTPUT"
         echo "IMAGE_FULL=${IMAGE}"   >> "$GITHUB_OUTPUT"
 
-    - name: Copy docker-compose.yaml to EC2
+    - name: Copy docker-compose.yml to EC2
       uses: appleboy/scp-action@v0.1.7
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ubuntu                  # <-- fixed (was $ubuntu)
         key: ${{ secrets.EC2_SSH_KEY }}
-        source: "docker-compose.yaml"
+        source: "docker-compose.yml"
         target: "/home/ubuntu/"
 
     - name: Deploy on EC2
