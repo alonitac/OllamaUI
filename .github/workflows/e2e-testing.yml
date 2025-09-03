@@ -1,6 +1,8 @@
 
 #e2e-testing.yml
 
+
+
 name: Simple Deploy to EC2
 
 on:
@@ -93,7 +95,7 @@ jobs:
 
 
 
-            
+
             # # דיפלוי
             # sudo docker compose --env-file .env pull
             # sudo docker compose --env-file .env down || true
