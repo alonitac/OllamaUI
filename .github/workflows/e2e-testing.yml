@@ -44,35 +44,40 @@ jobs:
         source: "docker-compose.yml"
         target: "/home/ubuntu/"
 
+    - name: Copy docker-compose file to EC2
+      uses: appleboy/scp-action@v0.1.7
+      with:
+            host: ${{ secrets.EC2_HOST }}
+            username: ubuntu
+            key: ${{ secrets.EC2_SSH_KEY }}
+            source: "docker-compose.yml"     # make sure the file name matches your repo
+            target: "/home/ubuntu/"
+
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.3
       with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            # Stop and remove all containers (force cleanup)
-            docker-compose down || true
-            docker stop $(docker ps -aq) 2>/dev/null || true
-            docker rm $(docker ps -aq) 2>/dev/null || true
+            host: ${{ secrets.EC2_HOST }}
+            username: ubuntu
+            key: ${{ secrets.EC2_SSH_KEY }}
+            # optionally pass envs: IMAGE_TAG  (לא חובה אם משתמשים בהרחבה למטה)
+            script: |
+                set -euo pipefail
+                cd /home/ubuntu
 
-            # Remove all images to free space
-            docker rmi $(docker images -q) 2>/dev/null || true
+                # Write .env for compose interpolation (values rendered by GitHub on the runner)
+                cat > .env <<EOF
+                DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+                OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
+                EOF
 
-            # Clean up dangling volumes and networks
-            docker volume prune -f || true
-            docker network prune -f || true
-            docker system prune -f || true
+                # Bring the stack up (Compose v2)
+                sudo docker compose --env-file .env pull || true
+                sudo docker compose --env-file .env down || true
+                sudo docker compose --env-file .env up -d
 
-            # Create .env file with the new image tag
-            cat > .env << EOF
-            OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
-            DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-            EOF
+                sudo docker compose --env-file .env ps
 
-            # Pull the new image and start services
-            docker-compose pull
-            docker-compose up -d
+
 
 
 
