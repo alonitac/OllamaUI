@@ -88,16 +88,6 @@ jobs:
 
 
 
-            # # ניקוי בטוח לפני דיפלוי
-            # sudo docker compose --env-file .env down --remove-orphans || true
-            # sudo docker container prune -f || true
-            # sudo docker image prune -af || true
-            # sudo docker network prune -f || true
-
-            # # דיפלוי
-            # sudo docker compose --env-file .env pull
-            # sudo docker compose --env-file .env up -d
-            # sudo docker compose --env-file .env ps
 
 
 

@@ -2,12 +2,11 @@
 #docker-compose.yml
 
 
-# שורת version אינה נדרשת ב-compose v2 ומייצרת אזהרה, אז נמחקה.
 
 services:
   postgres:
     image: postgres:15
-    container_name: my-app-postgres
+    container_name: postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: user
@@ -19,10 +18,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   yolo:
-    image: yosefshawah/yolo:0.0.3
-    container_name: my-app-yolo
+    image: tameer/yolo:0.0.4
+    container_name: yolo
     ports:
-      - "8080:8080"
+      - "8081:8081"
     volumes:
       - ./uploads:/app/uploads
     restart: unless-stopped
@@ -45,8 +44,8 @@ services:
       PORT: "3000"
       S3_REGION: eu-west-1
       S3_BUCKET: tameer-yolo-images
-      # בפנים הרשת של compose השירות yolo מאזין על 8080, לא 8081
-      YOLO_SERVICE: http://yolo:8080
+      
+      YOLO_SERVICE: http://yolo:8081
     depends_on:
       - yolo
     command: ["npm", "start", "--", "-H", "0.0.0.0"]
