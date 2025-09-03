@@ -1,0 +1,255 @@
+
+#e2e-testing.yml
+name: Simple Deploy to EC2
+
+on:
+  pull_request:
+    branches: [ main ]   # Run on PRs targeting main (your "test" lane)
+  workflow_dispatch: {}  # Allow manual runs from the Actions tab
+
+env:
+  # Where your Selenium tests live (change if needed)
+  OLLAMA_TESTS_REPO: tmeraslan/OllamaUITesting
+
+  # Images and fixed YOLO tag to test against
+  YOLO_FIXED_TAG: 991e7ebc1a6fbd6136517e56d68bdf843b749ef9-20250903-071354
+  YOLO_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/yolo
+  OLLAMA_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ollama
+
+  # Service parameters (Postgres taken from Repository Variables, NOT secrets)
+  POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+  POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASSWORD }}
+  POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+  POSTGRES_VERSION: "16"
+  POSTGRES_PORT: "5432"
+
+  # Ports used by services
+  YOLO_PORT: "8081"
+  OLLAMA_PORT: "3000"
+
+  # AWS settings passed to YOLO (adjust as needed)
+  AWS_REGION: "us-east-1"
+  AWS_S3_BUCKET: "tameer-yolo-images"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      OLLAMA_TAG: ${{ steps.build.outputs.IMAGE_TAG }}      # The dynamic tag we built for OllamaUI
+      OLLAMA_IMG_FULL: ${{ steps.build.outputs.IMAGE_FULL }}# Full image ref for OllamaUI (repo:tag)
+      YOLO_IMG_FULL: ${{ steps.compute.outputs.YOLO_IMG_FULL }} # Full image ref for YOLO (repo:fixed_tag)
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Docker login to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Build & Push OllamaUI image
+        id: build
+        shell: bash
+        run: |
+          # Create a unique tag (commit SHA + timestamp)
+          TAG="${GITHUB_SHA}-$(date +%Y%m%d-%H%M%S)"
+          IMG_FULL="${{ env.OLLAMA_IMAGE_NAME }}:${TAG}"
+
+          # Build and push the OllamaUI image
+          docker build -t "${IMG_FULL}" .
+          docker push "${IMG_FULL}"
+
+          # Expose outputs for downstream steps/jobs
+          echo "IMAGE_TAG=${TAG}"        >> "$GITHUB_OUTPUT"
+          echo "IMAGE_FULL=${IMG_FULL}"  >> "$GITHUB_OUTPUT"
+
+      - name: Compute YOLO full image ref (fixed tag)
+        id: compute
+        run: echo "YOLO_IMG_FULL=${{ env.YOLO_IMAGE_NAME }}:${{ env.YOLO_FIXED_TAG }}" >> "$GITHUB_OUTPUT"
+
+      - name: Copy docker-compose.yaml to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}     # Public IP/DNS of your EC2
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}   # PEM private key content
+          source: "docker-compose.yaml"     # Make sure the filename matches your repo
+          target: "/home/ubuntu/"
+
+      - name: Deploy on EC2 with Docker Compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /home/ubuntu
+
+            # Validate Docker and Compose are available
+            docker version
+            docker compose version
+
+            # Write .env consumed by docker-compose (Compose auto-loads .env in the same directory)
+            cat > .env <<'ENVVARS'
+            # Full image refs (repo:tag)
+            OLLAMA_UI_IMG=${{ steps.build.outputs.IMAGE_FULL }}
+            YOLO_IMAGE=${{ steps.compute.outputs.YOLO_IMG_FULL }}
+
+            # Postgres parameters (from Repository Variables)
+            POSTGRES_USER=${{ env.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ env.POSTGRES_PASSWORD }}
+            POSTGRES_DB=${{ env.POSTGRES_DB }}
+            POSTGRES_PORT=${{ env.POSTGRES_PORT }}
+            POSTGRES_VERSION=${{ env.POSTGRES_VERSION }}
+
+            # Ports for YOLO and OllamaUI
+            YOLO_PORT=${{ env.YOLO_PORT }}
+            OLLAMA_PORT=${{ env.OLLAMA_PORT }}
+
+            # AWS parameters for YOLO's S3 access
+            AWS_REGION=${{ env.AWS_REGION }}
+            AWS_S3_BUCKET=${{ env.AWS_S3_BUCKET }}
+            ENVVARS
+
+            # Load .env into this shell (safe since we just wrote it)
+            set +e
+            . ./.env
+            set -e
+
+            # Pull images (ignore failures in case of private throttling, etc.)
+            docker pull "$OLLAMA_UI_IMG" || true
+            docker pull "$YOLO_IMAGE"    || true
+
+            # Recreate the stack
+            docker compose down --remove-orphans
+            docker compose up -d
+
+            # Wait for OllamaUI to become reachable
+            for i in {1..30}; do
+              curl -fsS "http://localhost:${{ env.OLLAMA_PORT }}/" && break
+              echo "waiting for OllamaUI..."
+              sleep 5
+            done
+
+            # Show status and recent logs
+            docker compose ps
+            docker compose logs --no-color --tail=120
+
+  selenium-matrix-tests:
+    # E2E UI testing against the running EC2 stack
+    runs-on: ubuntu-latest
+    needs: deploy
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, firefox]
+        resolution:
+          - { name: "desktop-full", width: 1920, height: 1080 }
+          - { name: "laptop",      width: 1366, height: 768 }
+          - { name: "mobile",      width: 390,  height: 844 }
+    name: Test ${{ matrix.browser }} - ${{ matrix.resolution.name }}
+
+    steps:
+      - name: Checkout Selenium tests repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OLLAMA_TESTS_REPO }}
+          fetch-depth: 1
+          # If the tests repo is private or for Pages publishing, provide a PAT:
+          token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+          pip install allure-pytest webdriver-manager
+
+      # Install browsers via official actions (headless mode will be enabled by tests)
+      - name: Setup Chrome
+        if: matrix.browser == 'chrome'
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Setup Firefox
+        if: matrix.browser == 'firefox'
+        uses: browser-actions/setup-firefox@v1
+
+      - name: Prepare Allure environment metadata
+        run: |
+          mkdir -p allure-results
+          cat > allure-results/environment.properties <<EOF
+          OLLAMA_UI_IMAGE=${{ needs.deploy.outputs.OLLAMA_IMG_FULL }}
+          YOLO_IMAGE=${{ needs.deploy.outputs.YOLO_IMG_FULL }}
+          POSTGRES_VERSION=${{ env.POSTGRES_VERSION }}
+          POSTGRES_PORT=${{ env.POSTGRES_PORT }}
+          YOLO_PORT=${{ env.YOLO_PORT }}
+          OLLAMA_PORT=${{ env.OLLAMA_PORT }}
+          EC2_HOST=${{ secrets.EC2_HOST }}
+          BROWSER=${{ matrix.browser }}
+          RESOLUTION=${{ matrix.resolution.name }} (${{ matrix.resolution.width }}x${{ matrix.resolution.height }})
+          EOF
+
+      - name: Run Selenium tests (headless)
+        env:
+          HEADLESS: "true"
+          BROWSER: ${{ matrix.browser }}
+          SCREEN_WIDTH: ${{ matrix.resolution.width }}
+          SCREEN_HEIGHT: ${{ matrix.resolution.height }}
+          RESOLUTION: ${{ matrix.resolution.name }}
+          BASE_URL: http://${{ secrets.EC2_HOST }}:${{ env.OLLAMA_PORT }}
+        run: |
+          echo "Testing ${BASE_URL} on ${BROWSER} @ ${RESOLUTION}"
+          pytest -q --alluredir=allure-results tests/
+
+      - name: Upload Allure results (per matrix axis)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-${{ matrix.browser }}-${{ matrix.resolution.name }}
+          path: allure-results/
+          retention-days: 30
+
+  allure-report:
+    # Merge all Allure results and publish a unified report to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: selenium-matrix-tests
+    if: always()
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Download Allure results artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: allure-results-*
+          path: allure-results-downloaded
+
+      - name: Merge results
+        run: |
+          mkdir -p allure-results
+          shopt -s nullglob
+          for dir in allure-results-downloaded/*; do
+            cp -r "$dir"/* allure-results/ 2>/dev/null || true
+          done
+
+      - name: Generate Allure Report
+        uses: simple-elf/allure-report-action@master
+        with:
+          allure_results: allure-results
+          allure_report: allure-report
+          gh_pages: gh-pages
+          allure_history: allure-history
+          keep_reports: 20
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
+          publish_dir: allure-history

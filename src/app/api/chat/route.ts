@@ -1,92 +1,149 @@
-import { createOllama } from 'ollama-ai-provider';
-import { streamText, convertToCoreMessages, CoreMessage, UserContent } from 'ai';
 
-export const runtime = "edge";
-export const dynamic = "force-dynamic";
+
+// app/api/chat/route.ts  (עדכן את המיקום לפי הפרויקט שלך)
+// export const runtime = 'nodejs';
+// export const dynamic = 'force-dynamic';
+
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { randomUUID } from 'crypto';
+
+
+function extFromContentType(ct?: string | null) {
+  if (!ct) return '';
+  const map: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff',
+    'image/heic': 'heic',
+  };
+  return map[ct] || '';
+}
+
+const s3 = new S3Client({ region:'eu-west-1'});
+
 
 export async function POST(req: Request) {
-  // Destructure request data
   const { messages, selectedModel, data } = await req.json();
 
-  // Remove experimental_attachments from each message
-  const cleanedMessages = messages.map((message: any) => {
-    const { experimental_attachments, ...cleanMessage } = message;
-    return cleanMessage;
-  });
+  // ננקה attachments ניסיוניים אם קיימים (שומר על הקוד המקורי שלך)
+  const cleanedMessages = Array.isArray(messages)
+    ? messages.map((m: any) => {
+        const { experimental_attachments, ...rest } = m ?? {};
+        return rest;
+      })
+    : [];
 
   let message = 'Please provide an image for object detection.';
- 
-  // Check if there are images for object detection
-  if (data?.images && data.images.length > 0) {
+
+  if (data?.images?.length) {
     try {
-      // Handle object detection for the first image
-      const imageUrl = data.images[0];
-      
-      // Convert data URL to blob for upload
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
-      
-      // Create FormData for the prediction API
-      const formData = new FormData();
-      formData.append('file', blob, 'image.jpg');
-      
-      // Call the object detection API
-      const predictionResponse = await fetch(`http://${process.env.YOLO_SERVICE}/predict`, {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!predictionResponse.ok) {
-        throw new Error(`Prediction API error: ${predictionResponse.status}`);
+      const bucket = process.env.AWS_S3_BUCKET!;
+      const yoloService = process.env.YOLO_SERVICE || process.env.YOLO_SERVICE_DEV;
+      if (!bucket || !yoloService) {
+        throw new Error('Missing AWS_S3_BUCKET or YOLO_SERVICE env');
       }
-      
+
+      // נביא את התמונה מה-data URL / URL שהקליינט שלח
+      const imageUrl: string = data.images[0];
+      const resp = await fetch(imageUrl);
+      if (!resp.ok) throw new Error(`Failed to fetch uploaded image: ${resp.status}`);
+      const blob = await resp.blob();
+      console.log("******")
+      console.log(blob.type)
+      const contentType = blob.type || 'application/octet-stream';
+      const arrBuf = await blob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrBuf);
+      // const body = Buffer.from(arrBuf);
+  
+      // נבנה מפתח S3 בטוח
+      const prefix = "randomprefix";
+      // const ext = extFromContentType(contentType) || 'bin';
+      const key = `${prefix}${randomUUID()}`;
+
+      // העלאה ל-S3
+      try{
+        console.log("#############")
+        console.log({ bucket, key, contentType,uint8Array})
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: uint8Array,
+            ContentType: contentType,
+          }),
+        );
+      }catch(error){
+        throw new Error(
+          "S3_ERROR: " +
+            (error instanceof Error ? error.message : "Unknown S3 upload error")
+        );
+      }
+
+      // קריאה ל-YOLO: מצב "קובץ ב-S3", ה-YOLO יוריד לפי bucket+key מה־env שלו
+      const predictionResponse = await fetch(
+        `${yoloService.replace(/\/+$/, '')}/predict?img_url=${encodeURIComponent(key)}`,
+        { method: 'POST' },
+      );
+
+      if (!predictionResponse.ok) {
+        const text = await predictionResponse.text().catch(() => '');
+        throw new Error(`Prediction API error: ${predictionResponse.status} ${text}`);
+      }
+
       const predictionResult = await predictionResponse.json();
-      
-      // Format the detection results for chat
+
       message = `🔍 **Object Detection Results**
 
 **Detection Count:** ${predictionResult.detection_count}
-**Detected Objects:** ${predictionResult.labels.join(', ')}
+**Detected Objects:** ${Array.isArray(predictionResult.labels) ? predictionResult.labels.join(', ') : ''}
 **Prediction ID:** ${predictionResult.prediction_uid}
 
-I've analyzed your image and detected ${predictionResult.detection_count} object(s). The detected objects include: ${predictionResult.labels.join(', ')}.`;
-    
+I've analyzed your image and detected ${predictionResult.detection_count} object(s). The detected objects include: ${
+        Array.isArray(predictionResult.labels) ? predictionResult.labels.join(', ') : ''
+      }.`;      
     } catch (error) {
       console.error('Object detection error:', error);
       message = `❌ **Object Detection Error**
 
-Sorry, I encountered an error while processing your image: ${error instanceof Error ? error.message : 'Unknown error'}
+${error instanceof Error ? error.message : 'Unknown error'}
 
-Please make sure the object detection service is running on localhost:8080.`;
-     }
+Tips:
+- ודא של-YOLO יש משתני סביבה נכונים ל-S3 (AWS_REGION, AWS_S3_BUCKET, הרשאות).
+- ודא שה־YOLO מאזין ב: ${process.env.YOLO_SERVICE || process.env.YOLO_SERVICE_DEV || 'http://localhost:8080'}.
+`;
+    }
   }
 
+  // סטרים הטקסט חזרה (כמו בקוד שלך)
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
-      // Split message into lines and send each line as a separate chunk
       const lines = message.split('\n');
-      
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        // Add newline character back except for the last line
-        const content = i < lines.length - 1 ? line + '\n' : line;
+        const content = i < lines.length - 1 ? lines[i] + '\n' : lines[i];
         controller.enqueue(encoder.encode(`0:${JSON.stringify(content)}\n`));
       }
-      
-      // Send finish event
-      controller.enqueue(encoder.encode(`e:${JSON.stringify({
-        finishReason: "stop",
-        usage: { promptTokens: 10, completionTokens: message.length },
-        isContinued: false
-      })}\n`));
-      
-      // Send done event
-      controller.enqueue(encoder.encode(`d:${JSON.stringify({
-        finishReason: "stop",
-        usage: { promptTokens: 10, completionTokens: message.length }
-      })}\n`));
-      
+      controller.enqueue(
+        encoder.encode(
+          `e:${JSON.stringify({
+            finishReason: 'stop',
+            usage: { promptTokens: 10, completionTokens: message.length },
+            isContinued: false,
+          })}\n`,
+        ),
+      );
+      controller.enqueue(
+        encoder.encode(
+          `d:${JSON.stringify({
+            finishReason: 'stop',
+            usage: { promptTokens: 10, completionTokens: message.length },
+          })}\n`,
+        ),
+      );
       controller.close();
     },
   });
@@ -98,3 +155,125 @@ Please make sure the object detection service is running on localhost:8080.`;
     },
   });
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // route.ts
+// import { createOllama } from 'ollama-ai-provider';
+// import { streamText, convertToCoreMessages, CoreMessage, UserContent } from 'ai';
+
+// import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+// import { routeModule } from 'next/dist/build/templates/app-page';
+
+
+
+// export const runtime = "edge";
+// export const dynamic = "force-dynamic";
+
+
+// export async function POST(req: Request) {
+//   // Destructure request data
+//   const { messages, selectedModel, data } = await req.json();
+
+//   // Remove experimental_attachments from each message
+//   const cleanedMessages = messages.map((message: any) => {
+//     const { experimental_attachments, ...cleanMessage } = message;
+//     return cleanMessage;
+//   });
+
+//   let message = 'Please provide an image for object detection.';
+ 
+//   // Check if there are images for object detection
+//   if (data?.images && data.images.length > 0) {
+//     try {
+//       // Handle object detection for the first image
+//       const imageUrl = data.images[0];
+      
+//       // Convert data URL to blob for upload
+//       const response = await fetch(imageUrl);
+//       const blob = await response.blob();
+      
+//       // Create FormData for the prediction API
+//       const formData = new FormData();
+//       formData.append('file', blob, 'image.jpg');
+      
+//       // Call the object detection API
+//       const predictionResponse = await fetch(`${process.env.YOLO_SERVICE_DEV}/predict`, {
+//         method: 'POST',
+//         body: formData,
+//       });
+      
+//       if (!predictionResponse.ok) {
+//         throw new Error(`Prediction API error: ${predictionResponse.status}`);
+//       }
+      
+//       const predictionResult = await predictionResponse.json();
+      
+//       // Format the detection results for chat
+//       message = `🔍 **Object Detection Results**
+
+// **Detection Count:** ${predictionResult.detection_count}
+// **Detected Objects:** ${predictionResult.labels.join(', ')}
+// **Prediction ID:** ${predictionResult.prediction_uid}
+
+// I've analyzed your image and detected ${predictionResult.detection_count} object(s). The detected objects include: ${predictionResult.labels.join(', ')}.`;
+    
+//     } catch (error) {
+//       console.error('Object detection error:', error);
+//       message = `❌ **Object Detection Error**
+
+// Sorry, I encountered an error while processing your image: ${error instanceof Error ? error.message : 'Unknown error'}
+
+// Please make sure the object detection service is running on localhost:8080.`;
+//      }
+//   }
+
+//   const encoder = new TextEncoder();
+//   const stream = new ReadableStream({
+//     start(controller) {
+//       // Split message into lines and send each line as a separate chunk
+//       const lines = message.split('\n');
+      
+//       for (let i = 0; i < lines.length; i++) {
+//         const line = lines[i];
+//         // Add newline character back except for the last line
+//         const content = i < lines.length - 1 ? line + '\n' : line;
+//         controller.enqueue(encoder.encode(`0:${JSON.stringify(content)}\n`));
+//       }
+      
+//       // Send finish event
+//       controller.enqueue(encoder.encode(`e:${JSON.stringify({
+//         finishReason: "stop",
+//         usage: { promptTokens: 10, completionTokens: message.length },
+//         isContinued: false
+//       })}\n`));
+      
+//       // Send done event
+//       controller.enqueue(encoder.encode(`d:${JSON.stringify({
+//         finishReason: "stop",
+//         usage: { promptTokens: 10, completionTokens: message.length }
+//       })}\n`));
+      
+//       controller.close();
+//     },
+//   });
+
+//   return new Response(stream, {
+//     headers: {
+//       'Content-Type': 'text/plain; charset=utf-8',
+//       'X-Vercel-AI-Data-Stream': 'v1',
+//     },
+//   });
+// }

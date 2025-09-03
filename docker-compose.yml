@@ -1,26 +1,96 @@
+
+#docker-compose.yml
+
+version: "3.9"
+
 services:
   postgres:
-    image: postgres:15
+    image: postgres:${POSTGRES_VERSION:-16}
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: db
-
+      # Initial DB bootstrap credentials (used only on first run when the volume is empty)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespass}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-predictions}
+    # Expose Postgres externally only if you really need it
+    # ports:
+    #   - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - appnet
 
   yolo:
-    image: tameer/yolo:0.0.1
+    image: ${YOLO_IMAGE}   # e.g. tameer/yolo:991e7e...-20250903-071354
     environment:
-      - DB_BACKEND="postgres"
+      DB_BACKEND: postgres
+      # Internal connection string to Postgres service
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespass}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-predictions}
+      # S3 configuration
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-tameer-yolo-images}
+    depends_on:
+      - postgres
+    # Publish YOLO externally on the same port it listens to
     ports:
-      - "8081:8081"
-    volumes:
-      - ./uploads:/app/uploads
+      - "${YOLO_PORT:-8081}:${YOLO_PORT:-8081}"
+    networks:
+      - appnet
 
   ollama-ui:
-    image: tameer/ollamaui:0.0.1
-    ports:
-      - "3000:3000"
+    image: ${OLLAMA_UI_IMG}  # e.g. tameer/ollama:<sha>-<timestamp>
     environment:
-      - YOLO_SERVICE=yolo:8081
-      - YOLO_USER=admin
-      - YOLO_PASS=admin
+      # UI talks to YOLO via Compose internal network using service name "yolo"
+      YOLO_SERVICE: ${YOLO_SERVICE:-http://yolo:${YOLO_PORT:-8081}}
+      # UI listening port inside the container
+      PORT: ${OLLAMA_PORT:-3000}
+    depends_on:
+      - yolo
+    # Publish UI externally on host:container 3000
+    ports:
+      - "${OLLAMA_PORT:-3000}:3000"
+    networks:
+      - appnet
+
+volumes:
+  pgdata:
+
+networks:
+  appnet:
+
+
+
+
+
+
+
+
+
+
+
+
+# services:
+#   postgres:
+#     image: postgres:15
+#     environment:
+#       POSTGRES_USER: user
+#       POSTGRES_PASSWORD: pass
+#       POSTGRES_DB: db
+
+
+#   yolo:
+#     image: tameer/yolo:0.0.1
+#     environment:
+#       - DB_BACKEND="postgres"
+#     ports:
+#       - "8081:8081"
+#     volumes:
+#       - ./uploads:/app/uploads
+
+#   ollama-ui:
+#     image: tameer/ollamaui:0.0.1
+#     ports:
+#       - "3000:3000"
+#     environment:
+#       - YOLO_SERVICE=yolo:8081
+#       - YOLO_USER=admin
+#       - YOLO_PASS=admin
