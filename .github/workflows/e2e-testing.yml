@@ -19,11 +19,11 @@ jobs:
 
           TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
 
-          # Build the image with a simple tag
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG .
-
-          # Push the image to DockerHub
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG
+          # Build and push multi-arch image (amd64 and arm64)
+           docker buildx build \
+          --platform linux/amd64,linux/arm64 \
+          -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama:$TAG \
+          --push .
 
           # Save the tag for later *steps* (if you need the tag value in another JOB, use artifacts, as seen in class)
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
