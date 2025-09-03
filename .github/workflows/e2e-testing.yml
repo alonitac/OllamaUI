@@ -39,7 +39,7 @@ jobs:
 
       - name: Create .env file
         run: |
-          echo "OLLAMA_UI_IMAGE=${IMAGE_TAG}" >> .env
+          echo "OLLAMA_UI_IMAGE=omriza5/${IMAGE_TAG}" >> .env
           echo "ENV=testing" >> .env
           echo "YOLO_IMAGE=${{ secrets.YOLO_IMAGE }}" >> .env
           echo "YOLO_PORT=${{ secrets.YOLO_PORT }}" >> .env
