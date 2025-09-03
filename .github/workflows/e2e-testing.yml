@@ -47,8 +47,6 @@ jobs:
         username: ubuntu
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-                   
-          # Stop and remove old containers
           docker compose down
           
           echo """
