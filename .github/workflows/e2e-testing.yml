@@ -52,6 +52,7 @@ jobs:
           echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}" >> .env
           echo "POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}" >> .env
           echo "YOLO_SERVICE=${{ secrets.YOLO_SERVICE }}" >> .env
+          echo "YOLO_SERVICE_DEV=${{ secrets.YOLO_SERVICE_DEV }}" >> .env
 
       - name: Copy .env file to EC2
         uses: appleboy/scp-action@v0.1.7
