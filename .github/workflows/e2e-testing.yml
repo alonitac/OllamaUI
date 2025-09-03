@@ -45,7 +45,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # Stop and remove old containers
-            docker-compose down
+            docker compose down
 
             echo """
             OLLAMA_UI_IMG_TAG={{ env.IMAGE_TAG }}
