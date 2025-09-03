@@ -40,20 +40,45 @@ jobs:
         source: "docker-compose.yml"
         target: "/home/ubuntu/"
 
-    - name: Deploy to EC2
+    - name: Install Docker & Deploy on EC2
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ubuntu
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          docker compose down
-          
-          echo """
-          OLLAMA_UI_IMG_TAG={{ env.IMAGE_TAG }}
-          """ > .env
-          
-          docker compose up -d
+          set -euo pipefail
+          cd /home/ubuntu
+
+          # אם מותקן podman-docker, מסירים כדי לא לחסום Docker אמיתי
+          sudo apt-get remove -y podman-docker podman || true
+
+          # מתקינים Docker Engine + Compose v2 אם לא מותקנים
+          if ! command -v docker >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y ca-certificates curl gnupg
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+            https://download.docker.com/linux/ubuntu $(. /etc/os-release; echo $VERSION_CODENAME) stable" | \
+                      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                    sudo apt-get update -y
+                    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                    sudo systemctl enable --now docker
+                  fi
+
+          # קובץ .env לערכי אינטרפולציה של compose (הערכים מורכבים כבר ע"י GitHub)
+          cat > .env <<EOF
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
+          EOF
+
+          # העלאת הסטאק (שימוש ב-docker compose של v2, לא docker-compose הישן)
+          sudo docker compose --env-file .env pull
+          sudo docker compose --env-file .env down || true
+          sudo docker compose --env-file .env up -d
+          sudo docker compose --env-file .env ps
+
 
 
 
