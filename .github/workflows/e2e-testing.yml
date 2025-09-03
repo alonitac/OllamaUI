@@ -1,74 +1,157 @@
 
 #e2e-testing.yml
-name: Simple Deploy to EC2
+
+
+
+name: E2E Testing
 
 on:
   pull_request:
-    branches: [ master ]
-
-
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Get code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Login to Docker Hub
-      run: |
-        echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+      - name: Build and push Docker image
+        run: |
+          # Login to DockerHub
+          echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
 
-    - name: Build & push OllamaUI image
-      id: build
-      shell: bash
-      run: |
-        TAG="${GITHUB_SHA}-$(date +%Y%m%d-%H%M%S)"
-        IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/ollama:${TAG}"
+          TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
 
-        echo "Building ${IMAGE} ..."
-        docker build -t "${IMAGE}" .
+          # Build the image with the tag
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG .
 
-        echo "Pushing ${IMAGE} ..."
-        docker push "${IMAGE}"
+          # Push the image to DockerHub
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:$TAG
 
-        # expose TAG and full image ref to later steps in THIS job
-        echo "TAG=${TAG}"            >> "$GITHUB_OUTPUT"
-        echo "IMAGE_FULL=${IMAGE}"   >> "$GITHUB_OUTPUT"
+          # Save the tag for later steps
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
 
-    - name: Copy docker-compose.yml to EC2
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu                  # <-- fixed (was $ubuntu)
-        key: ${{ secrets.EC2_SSH_KEY }}
-        source: "docker-compose.yml"
-        target: "/home/ubuntu/"
+      - name: Copy docker-compose file to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/home/ubuntu/"
 
-    - name: Deploy on EC2
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          set -euo pipefail
-          cd /home/ubuntu
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Stop and remove all containers (force cleanup)
+            docker-compose down || true
+            docker stop $(docker ps -aq) 2>/dev/null || true
+            docker rm $(docker ps -aq) 2>/dev/null || true
 
-          # Write/override .env for Compose (Compose auto-loads .env in this dir)
-          cat > .env <<EOF
-          # Full image reference for the UI (repo:tag)
-          OLLAMA_UI_IMG=${{ steps.build.outputs.IMAGE_FULL }}
-          EOF
+            # Remove all images to free space
+            docker rmi $(docker images -q) 2>/dev/null || true
 
-          echo "Using OLLAMA_UI_IMG=$(grep '^OLLAMA_UI_IMG' .env | cut -d= -f2-)"
+            # Clean up dangling volumes and networks
+            docker volume prune -f || true
+            docker network prune -f || true
+            docker system prune -f || true
 
-          # Bring down old stack (ignore if not running), pull, then start
-          docker compose down || true
-          docker compose pull || true
-          docker compose up -d
+            # Create .env file with the new image tag
+            cat > .env << EOF
+            OLLAMA_UI_IMG_TAG=${{ env.OLLAMA_UI_IMG }}
+            DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+            EOF
 
-          # Optional: show status
-          docker compose ps
+            # Pull the new image and start services
+            docker-compose pull
+            docker-compose up -d
+
+
+
+
+
+
+
+
+
+
+
+
+# name: Simple Deploy to EC2
+
+# on:
+#   pull_request:
+#     branches: [ master ]
+
+
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#     - name: Get code
+#       uses: actions/checkout@v4
+
+#     - name: Login to Docker Hub
+#       run: |
+#         echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+#     - name: Build & push OllamaUI image
+#       id: build
+#       shell: bash
+#       run: |
+#         TAG="${GITHUB_SHA}-$(date +%Y%m%d-%H%M%S)"
+#         IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/ollama:${TAG}"
+
+#         echo "Building ${IMAGE} ..."
+#         docker build -t "${IMAGE}" .
+
+#         echo "Pushing ${IMAGE} ..."
+#         docker push "${IMAGE}"
+
+#         # expose TAG and full image ref to later steps in THIS job
+#         echo "TAG=${TAG}"            >> "$GITHUB_OUTPUT"
+#         echo "IMAGE_FULL=${IMAGE}"   >> "$GITHUB_OUTPUT"
+
+#     - name: Copy docker-compose.yml to EC2
+#       uses: appleboy/scp-action@v0.1.7
+#       with:
+#         host: ${{ secrets.EC2_HOST }}
+#         username: ubuntu                  # <-- fixed (was $ubuntu)
+#         key: ${{ secrets.EC2_SSH_KEY }}
+#         source: "docker-compose.yml"
+#         target: "/home/ubuntu/"
+
+#     - name: Deploy on EC2
+#       uses: appleboy/ssh-action@v1.0.3
+#       with:
+#         host: ${{ secrets.EC2_HOST }}
+#         username: ubuntu
+#         key: ${{ secrets.EC2_SSH_KEY }}
+#         script: |
+#           set -euo pipefail
+#           cd /home/ubuntu
+
+#           # Write/override .env for Compose (Compose auto-loads .env in this dir)
+#           cat > .env <<EOF
+#           # Full image reference for the UI (repo:tag)
+#           OLLAMA_UI_IMG=${{ steps.build.outputs.IMAGE_FULL }}
+#           EOF
+
+#           echo "Using OLLAMA_UI_IMG=$(grep '^OLLAMA_UI_IMG' .env | cut -d= -f2-)"
+
+#           # Bring down old stack (ignore if not running), pull, then start
+#           docker compose down || true
+#           docker compose pull || true
+#           docker compose up -d
+
+#           # Optional: show status
+#           docker compose ps
 
