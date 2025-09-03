@@ -45,9 +45,6 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           source: ".env"
           target: "/home/ubuntu/"
-          script: |
-            echo "OLLAMA_UI_IMAGE=${IMAGE_TAG}" >> .env
-            echo "ENV=testing" >> .env
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -59,6 +56,9 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # Stop and remove old containers
+            echo "OLLAMA_UI_IMAGE=${IMAGE_TAG}" >> .env
+            echo "ENV=testing" >> .env
+
             docker compose down
 
             docker compose up -d
