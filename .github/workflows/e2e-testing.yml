@@ -44,38 +44,77 @@ jobs:
         source: "docker-compose.yml"
         target: "/home/ubuntu/"
 
-    - name: Copy docker-compose file to EC2
-      uses: appleboy/scp-action@v0.1.7
-      with:
-            host: ${{ secrets.EC2_HOST }}
-            username: ubuntu
-            key: ${{ secrets.EC2_SSH_KEY }}
-            source: "docker-compose.yml"     # make sure the file name matches your repo
-            target: "/home/ubuntu/"
-
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.3
       with:
-            host: ${{ secrets.EC2_HOST }}
-            username: ubuntu
-            key: ${{ secrets.EC2_SSH_KEY }}
-            # optionally pass envs: IMAGE_TAG  (לא חובה אם משתמשים בהרחבה למטה)
-            script: |
-                set -euo pipefail
-                cd /home/ubuntu
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+                   
+          # Stop and remove old containers
+          docker compose down
+          
+          echo """
+          OLLAMA_UI_IMG_TAG={{ env.IMAGE_TAG }}
+          """ > .env
+          
+          docker compose up -d
 
-                # Write .env for compose interpolation (values rendered by GitHub on the runner)
-                cat > .env <<EOF
-                DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-                OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
-                EOF
 
-                # Bring the stack up (Compose v2)
-                sudo docker compose --env-file .env pull || true
-                sudo docker compose --env-file .env down || true
-                sudo docker compose --env-file .env up -d
 
-                sudo docker compose --env-file .env ps
+
+
+
+
+
+
+
+
+
+
+    # - name: Copy docker-compose file to EC2
+    #   uses: appleboy/scp-action@v0.1.7
+    #   with:
+    #         host: ${{ secrets.EC2_HOST }}
+    #         username: ubuntu
+    #         key: ${{ secrets.EC2_SSH_KEY }}
+    #         source: "docker-compose.yml"     # make sure the file name matches your repo
+    #         target: "/home/ubuntu/"
+
+    # - name: Deploy to EC2
+    #   uses: appleboy/ssh-action@v1.0.3
+    #   with:
+    #         host: ${{ secrets.EC2_HOST }}
+    #         username: ubuntu
+    #         key: ${{ secrets.EC2_SSH_KEY }}
+    #         # optionally pass envs: IMAGE_TAG  (לא חובה אם משתמשים בהרחבה למטה)
+    #         script: |
+    #             set -euo pipefail
+    #             cd /home/ubuntu
+
+    #             # Write .env for compose interpolation (values rendered by GitHub on the runner)
+    #             cat > .env <<EOF
+    #             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+    #             OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
+    #             EOF
+
+    #             # Bring the stack up (Compose v2)
+    #             sudo docker compose --env-file .env pull || true
+    #             sudo docker compose --env-file .env down || true
+    #             sudo docker compose --env-file .env up -d
+
+    #             sudo docker compose --env-file .env ps
+
+
+
+
+
+
+
+
+
+
 
 
 
