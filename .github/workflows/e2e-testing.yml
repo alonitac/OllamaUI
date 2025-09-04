@@ -192,189 +192,189 @@ jobs:
           path: allure-results/
           retention-days: 30
 
-  generate-allure-report:
-    runs-on: ubuntu-latest
-    needs: selenium-matrix-tests
-    if: always()
+  # generate-allure-report:
+  #   runs-on: ubuntu-latest
+  #   needs: selenium-matrix-tests
+  #   if: always()
 
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
+  #   permissions:
+  #     contents: read
+  #     pages: write
+  #     id-token: write
 
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  #   environment:
+  #     name: github-pages
+  #     url: ${{ steps.deployment.outputs.page_url }}
 
-    steps:
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+  #   steps:
+  #     - name: Setup Pages
+  #       uses: actions/configure-pages@v4
 
-      - name: Download all Allure results
-        uses: actions/download-artifact@v4
-        with:
-          pattern: allure-results-*
-          path: ./allure-results
-          merge-multiple: true
+  #     - name: Download all Allure results
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         pattern: allure-results-*
+  #         path: ./allure-results
+  #         merge-multiple: true
 
-      - name: Merge Allure Results
-        run: |
-          mkdir -p allure-results
+  #     - name: Merge Allure Results
+  #       run: |
+  #         mkdir -p allure-results
 
-          # Create categories.json for better organization
-          cat > allure-results/categories.json << 'EOF'
-          [
-            {
-              "name": "Desktop Tests",
-              "matchedStatuses": ["passed", "failed", "broken"],
-              "messageRegex": ".*desktop.*"
-            },
-            {
-              "name": "Mobile Tests", 
-              "matchedStatuses": ["passed", "failed", "broken"],
-              "messageRegex": ".*mobile.*"
-            },
-            {
-              "name": "Tablet Tests",
-              "matchedStatuses": ["passed", "failed", "broken"], 
-              "messageRegex": ".*tablet.*"
-            },
-            {
-              "name": "Chrome Tests",
-              "matchedStatuses": ["passed", "failed", "broken"],
-              "messageRegex": ".*chrome.*"
-            },
-            {
-              "name": "Firefox Tests",
-              "matchedStatuses": ["passed", "failed", "broken"],
-              "messageRegex": ".*firefox.*"
-            }
-          ]
-          EOF
+  #         # Create categories.json for better organization
+  #         cat > allure-results/categories.json << 'EOF'
+  #         [
+  #           {
+  #             "name": "Desktop Tests",
+  #             "matchedStatuses": ["passed", "failed", "broken"],
+  #             "messageRegex": ".*desktop.*"
+  #           },
+  #           {
+  #             "name": "Mobile Tests", 
+  #             "matchedStatuses": ["passed", "failed", "broken"],
+  #             "messageRegex": ".*mobile.*"
+  #           },
+  #           {
+  #             "name": "Tablet Tests",
+  #             "matchedStatuses": ["passed", "failed", "broken"], 
+  #             "messageRegex": ".*tablet.*"
+  #           },
+  #           {
+  #             "name": "Chrome Tests",
+  #             "matchedStatuses": ["passed", "failed", "broken"],
+  #             "messageRegex": ".*chrome.*"
+  #           },
+  #           {
+  #             "name": "Firefox Tests",
+  #             "matchedStatuses": ["passed", "failed", "broken"],
+  #             "messageRegex": ".*firefox.*"
+  #           }
+  #         ]
+  #         EOF
 
-          # Create global environment properties
-          cat > allure-results/environment.properties << EOF
-          Test.Framework=Selenium+Pytest
-          CI.Platform=GitHub Actions
-          Test.Types=UI Automation
-          Browsers=Chrome, Firefox
-          Resolutions=Desktop (1920x1080), Laptop (1366x768), Tablet (1024x768), Mobile (375x667)
-          Target.URL=http://${{ secrets.EC2_HOST }}:3000/
-          Ollama.Image=yosefshawah/ollama-ui:${{ needs.deploy.outputs.ollama_image_tag }}
-          YOLO.Image=yosefshawah/yolo:0.0.3
-          EOF
+  #         # Create global environment properties
+  #         cat > allure-results/environment.properties << EOF
+  #         Test.Framework=Selenium+Pytest
+  #         CI.Platform=GitHub Actions
+  #         Test.Types=UI Automation
+  #         Browsers=Chrome, Firefox
+  #         Resolutions=Desktop (1920x1080), Laptop (1366x768), Tablet (1024x768), Mobile (375x667)
+  #         Target.URL=http://${{ secrets.EC2_HOST }}:3000/
+  #         Ollama.Image=yosefshawah/ollama-ui:${{ needs.deploy.outputs.ollama_image_tag }}
+  #         YOLO.Image=yosefshawah/yolo:0.0.3
+  #         EOF
 
-          # Check if artifacts directory exists and has content
-          if [ -d "./artifacts" ] && [ "$(ls -A ./artifacts)" ]; then
-            echo "Found artifacts, merging..."
+  #         # Check if artifacts directory exists and has content
+  #         if [ -d "./artifacts" ] && [ "$(ls -A ./artifacts)" ]; then
+  #           echo "Found artifacts, merging..."
             
-            # Use a counter for truly unique filenames
-            counter=1
+  #           # Use a counter for truly unique filenames
+  #           counter=1
             
-            for dir in ./artifacts/allure-results-*; do
-              if [ -d "$dir" ]; then
-                echo "Processing $dir"
+  #           for dir in ./artifacts/allure-results-*; do
+  #             if [ -d "$dir" ]; then
+  #               echo "Processing $dir"
                 
-                # Extract browser and resolution from directory name
-                config_name=$(basename "$dir" | sed 's/allure-results-//')
-                echo "Configuration: $config_name"
+  #               # Extract browser and resolution from directory name
+  #               config_name=$(basename "$dir" | sed 's/allure-results-//')
+  #               echo "Configuration: $config_name"
                 
-                # Copy all files directly, but with unique names to avoid overwrites
-                for file in "$dir"/*; do
-                  if [ -f "$file" ]; then
-                    filename=$(basename "$file")
-                    extension="${filename##*.}"
-                    basename_no_ext="${filename%.*}"
+  #               # Copy all files directly, but with unique names to avoid overwrites
+  #               for file in "$dir"/*; do
+  #                 if [ -f "$file" ]; then
+  #                   filename=$(basename "$file")
+  #                   extension="${filename##*.}"
+  #                   basename_no_ext="${filename%.*}"
                     
-                    # Create unique filename: original-name-configname-counter.extension
-                    if [ "$filename" = "environment.properties" ]; then
-                      # Skip individual environment.properties files (we have a global one)
-                      continue
-                    else
-                      unique_filename="${basename_no_ext}-${config_name}-${counter}.${extension}"
-                    fi
+  #                   # Create unique filename: original-name-configname-counter.extension
+  #                   if [ "$filename" = "environment.properties" ]; then
+  #                     # Skip individual environment.properties files (we have a global one)
+  #                     continue
+  #                   else
+  #                     unique_filename="${basename_no_ext}-${config_name}-${counter}.${extension}"
+  #                   fi
                     
-                    cp "$file" "allure-results/${unique_filename}" 2>/dev/null || echo "Could not copy $file"
-                    echo "Copied $filename as $unique_filename"
-                  fi
-                done
+  #                   cp "$file" "allure-results/${unique_filename}" 2>/dev/null || echo "Could not copy $file"
+  #                   echo "Copied $filename as $unique_filename"
+  #                 fi
+  #               done
                 
-                counter=$((counter + 1))
-              fi
-            done
+  #               counter=$((counter + 1))
+  #             fi
+  #           done
             
-            # Show what we have
-            echo "Final allure-results contents:"
-            ls -la allure-results/
-            echo "JSON files count:"
-            ls -1 allure-results/*.json 2>/dev/null | wc -l
+  #           # Show what we have
+  #           echo "Final allure-results contents:"
+  #           ls -la allure-results/
+  #           echo "JSON files count:"
+  #           ls -1 allure-results/*.json 2>/dev/null | wc -l
             
-          else
-            echo "No artifacts found, creating empty results directory"
-            touch allure-results/.gitkeep
-          fi
+  #         else
+  #           echo "No artifacts found, creating empty results directory"
+  #           touch allure-results/.gitkeep
+  #         fi
 
-      - name: Get Allure history
-        uses: actions/checkout@v4
-        if: always()
-        continue-on-error: true
-        with:
-          ref: gh-pages
-          path: gh-pages
-          fetch-depth: 0
+  #     - name: Get Allure history
+  #       uses: actions/checkout@v4
+  #       if: always()
+  #       continue-on-error: true
+  #       with:
+  #         ref: gh-pages
+  #         path: gh-pages
+  #         fetch-depth: 0
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: "microsoft"
-          java-version: "17"
+  #     - name: Setup Java
+  #       uses: actions/setup-java@v4
+  #       with:
+  #         distribution: "microsoft"
+  #         java-version: "17"
 
-      - name: Setup Allure
-        run: |
-          wget -q -L https://github.com/allure-framework/allure2/releases/download/2.25.0/allure-2.25.0.tgz -O allure-2.25.0.tgz
-          sudo tar -xzf allure-2.25.0.tgz -C /opt/
-          sudo ln -sf /opt/allure-2.25.0/bin/allure /usr/bin/allure
-          allure --version
+  #     - name: Setup Allure
+  #       run: |
+  #         wget -q -L https://github.com/allure-framework/allure2/releases/download/2.25.0/allure-2.25.0.tgz -O allure-2.25.0.tgz
+  #         sudo tar -xzf allure-2.25.0.tgz -C /opt/
+  #         sudo ln -sf /opt/allure-2.25.0/bin/allure /usr/bin/allure
+  #         allure --version
 
-      - name: Debug Allure files
-        run: |
-          echo "Current directory contents:"
-          ls -la
-          echo "Artifacts directory contents:"
-          ls -la ./artifacts/ 2>/dev/null || echo "No artifacts directory"
-          echo "Allure results directory contents:"
-          ls -la allure-results/ 2>/dev/null || echo "No allure-results directory"
+  #     - name: Debug Allure files
+  #       run: |
+  #         echo "Current directory contents:"
+  #         ls -la
+  #         echo "Artifacts directory contents:"
+  #         ls -la ./artifacts/ 2>/dev/null || echo "No artifacts directory"
+  #         echo "Allure results directory contents:"
+  #         ls -la allure-results/ 2>/dev/null || echo "No allure-results directory"
 
-      - name: Generate Allure Report
-        run: |
-          # Create allure-results directory if it doesn't exist
-          mkdir -p allure-results
+  #     - name: Generate Allure Report
+  #       run: |
+  #         # Create allure-results directory if it doesn't exist
+  #         mkdir -p allure-results
 
-          # Copy history if gh-pages exists and has history
-          if [ -d "gh-pages" ] && [ -d "gh-pages/allure-history" ]; then
-            echo "Copying existing Allure history..."
-            cp -r gh-pages/allure-history allure-results/history
-          else
-            echo "No existing Allure history found, starting fresh..."
-          fi
+  #         # Copy history if gh-pages exists and has history
+  #         if [ -d "gh-pages" ] && [ -d "gh-pages/allure-history" ]; then
+  #           echo "Copying existing Allure history..."
+  #           cp -r gh-pages/allure-history allure-results/history
+  #         else
+  #           echo "No existing Allure history found, starting fresh..."
+  #         fi
 
-          # Generate report
-          allure generate allure-results --clean --output allure-report
+  #         # Generate report
+  #         allure generate allure-results --clean --output allure-report
 
-          # Ensure proper permissions and structure
-          chmod -R 755 allure-report
+  #         # Ensure proper permissions and structure
+  #         chmod -R 755 allure-report
 
-          # Copy history for next run
-          cp -r allure-report/history allure-report/allure-history 2>/dev/null || echo "No history to preserve"
+  #         # Copy history for next run
+  #         cp -r allure-report/history allure-report/allure-history 2>/dev/null || echo "No history to preserve"
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: allure-report
+  #     - name: Upload Pages artifact
+  #       uses: actions/upload-pages-artifact@v3
+  #       with:
+  #         path: allure-report
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+  #     - name: Deploy to GitHub Pages
+  #       id: deployment
+  #       uses: actions/deploy-pages@v4
 
 
 
