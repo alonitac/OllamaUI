@@ -157,6 +157,7 @@ jobs:
           TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
           ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
         run: |
+          if [ -d "allure-results" ]; then rm -rf allure-results; fi
           mkdir -p allure-results
           pytest --alluredir=allure-results tests/
 
