@@ -134,7 +134,7 @@ jobs:
           Target.URL=http://${{ secrets.EC2_HOST }}:3000/
           Commit=${{ github.sha }}
           OllamaUI.Image=${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:${{ needs.deploy.outputs.image_tag }}
-          YOLO.Image=yosefshawah/yolo:0.0.3
+          YOLO.Image=tameer/yolo:991e7ebc1a6fbd6136517e56d68bdf843b749ef9-20250903-071354
           Postgres.Image=postgres:15
           CI.Platform=GitHub Actions
           EOF
@@ -240,7 +240,7 @@ jobs:
           Target.URL=http://${{ secrets.EC2_HOST }}:3000/
           Commit=${{ github.sha }}
           OllamaUI.Image=${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:${{ needs.deploy.outputs.image_tag }}
-          YOLO.Image=yosefshawah/yolo:0.0.3
+          YOLO.Image=tameer/yolo:991e7ebc1a6fbd6136517e56d68bdf843b749ef9-20250903-071354
           Postgres.Image=postgres:15
           CI.Platform=GitHub Actions
           EOF
