@@ -11,7 +11,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     outputs:
-      image_tag: ${{ steps.build_push.outputs.image_tag }}  # מעבירים את ה-TAG ל-jobs אחרים
+      image_tag: ${{ steps.build_push.outputs.image_tag }}
     steps:
       - name: Get code
         uses: actions/checkout@v4
@@ -89,7 +89,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: tmeraslan/OllamaUITesting
-          # אם הפרויקט פרטי – השתמש ב-PAT: token: ${{ secrets.GH_PAT }}
           path: .
           clean: true
 
@@ -112,10 +111,10 @@ jobs:
         if: matrix.browser == 'firefox'
         uses: browser-actions/setup-firefox@v1
 
-      # מחכים שהאפליקציה ב-EC2 תהיה זמינה
-      - name: Wait for app to be ready
+      - name: Wait for app to be ready (same URL used by tests)
+        env:
+          URL: http://${{ secrets.EC2_HOST }}:3000/
         run: |
-          URL="http://${{ secrets.EC2_HOST }}:3000/"
           for i in {1..60}; do
             if curl -fsS "$URL" >/dev/null; then
               echo "App is up: $URL"
@@ -127,7 +126,6 @@ jobs:
           echo "App not ready at $URL" >&2
           exit 1
 
-      # (אופציונלי) קובץ סביבה של Allure אינפורמטיבי
       - name: Create Allure environment properties
         run: |
           mkdir -p allure-results
@@ -143,7 +141,6 @@ jobs:
           YOLO.Image=yosefshawah/yolo:0.0.3
           EOF
 
-      # מוסיפים conftest.py כדי להזריק פרמטרים ל-Allure (אופציונלי)
       - name: Inject Allure matrix params
         run: |
           cat > conftest.py << 'PY'
@@ -170,7 +167,7 @@ jobs:
                   pass
           PY
 
-      # <<< זה המקטע שביקשת בדיוק >>>
+      # ----- קטע ה-Allure שלך, מותאם ל-EC2_HOST -----
       - name: Run Selenium tests
         env:
           HEADLESS: true
@@ -178,17 +175,25 @@ jobs:
           SCREEN_WIDTH: ${{ matrix.resolution.width }}
           SCREEN_HEIGHT: ${{ matrix.resolution.height }}
           RESOLUTION: ${{ matrix.resolution.name }}
-          OLLAMA_URL: "http://3.248.209.42:3000"
+          OLLAMA_URL: http://${{ secrets.EC2_HOST }}:3000/
           TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
+          ENVIRONMENT: staging
         run: |
           mkdir -p allure-results
-          # Run your tests here with unique result directory
+          # sanity check לאותו URL שבו נשתמש בטסטים:
+          URL="${OLLAMA_URL%/}/"
+          for i in {1..30}; do
+            if curl -fsS "$URL" >/dev/null; then
+              break
+            fi
+            echo "Retry app check... ($i)"
+            sleep 3
+          done
           pytest --alluredir=allure-results tests/
 
       - name: Upload Allure results as artifact
         uses: actions/upload-artifact@v4
-        if: always()  # Upload even if tests fail
+        if: always()
         with:
           name: allure-results-${{ matrix.browser }}-${{ matrix.resolution.name }}
           path: allure-results/
@@ -199,7 +204,7 @@ jobs:
     needs: selenium-matrix-tests
     if: always()
     permissions:
-      contents: write   # נדרש כדי לדחוף ל-branch gh-pages
+      contents: write
 
     steps:
       - name: Checkout code
