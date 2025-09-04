@@ -8,6 +8,8 @@ name: Simple Deploy to EC2
 on:
   pull_request:
     branches: [ master ]
+  push:
+    branches: [ master ]
 
 jobs:
   deploy:
@@ -46,11 +48,7 @@ jobs:
           script: |
             set -euo pipefail
             cd /home/ubuntu
-
-            # הסרת podman אם קיים
             sudo apt-get remove -y podman-docker podman || true
-
-            # התקנת Docker Engine + Compose v2 אם צריך
             if ! command -v docker >/dev/null 2>&1; then
               sudo apt-get update -y
               sudo apt-get install -y ca-certificates curl gnupg
@@ -63,45 +61,16 @@ jobs:
               sudo systemctl enable --now docker
             fi
 
-            # Login ל־Docker Hub
             echo "${{ secrets.DOCKERHUB_PASSWORD }}" | sudo docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-            # הכנה
             sudo mkdir -p uploads
 
-            # .env לערכי אינטרפולציה
             cat > .env <<EOF
             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
             OLLAMA_UI_IMG_TAG=${{ env.IMAGE_TAG }}
             EOF
 
-            echo "== Disk usage BEFORE cleanup =="
-            df -h || true
-            sudo docker system df || true
-
-            # מורידים את ה־stack כדי לשחרר images/containers
-            sudo docker compose --env-file .env down || true
-
-            # *** ניקוי בטוח לשחרור מקום ***
-            # לא מוחקים volumes כדי לא לאבד את נתוני Postgres!
-            sudo docker container prune -f || true
-            sudo docker image prune -af || true
-            sudo docker builder prune -af || true
-
-            # ניקוי לוגים גדולים של Docker
-            sudo find /var/lib/docker/containers -type f -name "*.log" -print -delete || true
-
-            # ניקוי מערכת כללי (לא חובה אבל עוזר)
-            sudo journalctl --vacuum-time=3d || true
-            sudo apt-get clean || true
-            sudo rm -rf /var/lib/apt/lists/* || true
-
-            echo "== Disk usage AFTER cleanup =="
-            df -h || true
-            sudo docker system df || true
-
-            # משיכת אימג'ים והרמה מחודשת
             sudo docker compose --env-file .env pull
+            sudo docker compose --env-file .env down || true
             sudo docker compose --env-file .env up -d
             sudo docker compose --env-file .env ps
 
@@ -124,10 +93,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: tmeraslan/OllamaUITesting
+          # אם הפרויקט פרטי – השתמש ב-PAT: token: ${{ secrets.GH_PAT }}
           path: .
           clean: true
-          # אם הריפו פרטי – הוסף:
-          # token: ${{ secrets.GH_PAT }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -225,9 +193,10 @@ jobs:
           retention-days: 30
 
   generate-allure-report:
+    # נריץ רק על push ל-master כדי לעבור את ה-environment protection של GitHub Pages
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     runs-on: ubuntu-latest
     needs: selenium-matrix-tests
-    if: always()
 
     permissions:
       contents: read
@@ -236,22 +205,23 @@ jobs:
 
     environment:
       name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Download Allure results (merge)
+      - name: Download all Allure results
         uses: actions/download-artifact@v4
         with:
           pattern: allure-results-*
-          path: ./allure-results
+          path: allure-results
           merge-multiple: true
 
-      - name: Add categories and global environment
+      # אין צורך לשנות שמות קבצים – Allure משתמש בשמות UUID. רק מוסיפים מטא־דטה גלובלי.
+      - name: Add global Allure metadata
         run: |
-          mkdir -p allure-results
-          cat > allure-results/categories.json << 'EOF'
+          cat > allure-results/categories.json << 'JSON'
           [
             {"name":"Desktop Tests","matchedStatuses":["passed","failed","broken"],"messageRegex":".*desktop.*"},
             {"name":"Mobile Tests","matchedStatuses":["passed","failed","broken"],"messageRegex":".*mobile.*"},
@@ -259,7 +229,7 @@ jobs:
             {"name":"Chrome Tests","matchedStatuses":["passed","failed","broken"],"messageRegex":".*chrome.*"},
             {"name":"Firefox Tests","matchedStatuses":["passed","failed","broken"],"messageRegex":".*firefox.*"}
           ]
-          EOF
+          JSON
 
           cat > allure-results/environment.properties << EOF
           Test.Framework=Selenium+Pytest
@@ -273,36 +243,24 @@ jobs:
           Postgres.Image=postgres:15
           EOF
 
-      - name: Get Allure history (optional)
-        uses: actions/checkout@v4
-        if: always()
-        continue-on-error: true
-        with:
-          ref: gh-pages
-          path: gh-pages
-          fetch-depth: 0
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: "microsoft"
           java-version: "17"
 
-      - name: Setup Allure CLI
+      - name: Setup Allure
         run: |
-          wget -q -L https://github.com/allure-framework/allure2/releases/download/2.25.0/allure-2.25.0.tgz -O allure-2.25.0.tgz
+          curl -sL https://github.com/allure-framework/allure2/releases/download/2.25.0/allure-2.25.0.tgz -o allure-2.25.0.tgz
           sudo tar -xzf allure-2.25.0.tgz -C /opt/
-          sudo ln -sf /opt/allure-2.25.0/bin/allure /usr/bin/allure
+          sudo ln -sf /opt/allure-2.25.0/bin/allure /usr/local/bin/allure
           allure --version
 
       - name: Generate Allure Report
         run: |
-          mkdir -p allure-results
-          if [ -d "gh-pages/allure-history" ]; then
-            cp -r gh-pages/allure-history allure-results/history
-          fi
+          mkdir -p allure-report
           allure generate allure-results --clean --output allure-report
-          cp -r allure-report/history allure-report/allure-history 2>/dev/null || true
+          chmod -R 755 allure-report
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
