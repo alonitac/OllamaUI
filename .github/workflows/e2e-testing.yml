@@ -126,22 +126,20 @@ jobs:
           echo "App not ready at $URL" >&2
           exit 1
 
-      - name: Create Allure environment properties
+      # קובץ environment.properties כאן ישמור רק מידע גלובלי (גרסאות שירותים וכד'), לא פר-דפדפן/רזולוציה
+      - name: Create Allure environment (global)
         run: |
           mkdir -p allure-results
           cat > allure-results/environment.properties << EOF
-          Browser=${{ matrix.browser }}
-          Resolution=${{ matrix.resolution.name }}
-          Screen.Width=${{ matrix.resolution.width }}
-          Screen.Height=${{ matrix.resolution.height }}
-          Test.Environment=${{ matrix.browser }}-${{ matrix.resolution.name }}
-          Ollama.URL=http://${{ secrets.EC2_HOST }}:3000/
-          Headless.Mode=true
-          Ollama.Image=${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:${{ needs.deploy.outputs.image_tag }}
+          Target.URL=http://${{ secrets.EC2_HOST }}:3000/
+          Commit=${{ github.sha }}
+          OllamaUI.Image=${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:${{ needs.deploy.outputs.image_tag }}
           YOLO.Image=yosefshawah/yolo:0.0.3
+          Postgres.Image=postgres:15
+          CI.Platform=GitHub Actions
           EOF
 
-      - name: Inject Allure matrix params
+      - name: Inject Allure matrix params (browser/resolution as test parameters)
         run: |
           cat > conftest.py << 'PY'
           import os, pytest
@@ -167,7 +165,6 @@ jobs:
                   pass
           PY
 
-      # ----- קטע ה-Allure שלך, מותאם ל-EC2_HOST -----
       - name: Run Selenium tests
         env:
           HEADLESS: true
@@ -180,7 +177,6 @@ jobs:
           ENVIRONMENT: staging
         run: |
           mkdir -p allure-results
-          # sanity check לאותו URL שבו נשתמש בטסטים:
           URL="${OLLAMA_URL%/}/"
           for i in {1..30}; do
             if curl -fsS "$URL" >/dev/null; then
@@ -217,14 +213,38 @@ jobs:
           path: allure-results-downloaded
           merge-multiple: false
 
-      - name: Merge all results into single directory
+      - name: Merge all results into single directory (and set global environment)
         run: |
           mkdir -p allure-results
+          # מאחדים את כל קבצי ה-json/xml מהארטיפקטים
           for dir in allure-results-downloaded/*/; do
             if [ -d "$dir" ]; then
               cp -r "$dir"* allure-results/ 2>/dev/null || true
             fi
           done
+
+          # categories.json (לא חובה, אבל נוח לסידור)
+          cat > allure-results/categories.json << 'EOF'
+          [
+            {"name": "Chrome",  "matchedStatuses": ["passed","failed","broken"], "messageRegex": ".*chrome.*"},
+            {"name": "Firefox", "matchedStatuses": ["passed","failed","broken"], "messageRegex": ".*firefox.*"},
+            {"name": "Desktop", "matchedStatuses": ["passed","failed","broken"], "messageRegex": ".*desktop.*"},
+            {"name": "Mobile",  "matchedStatuses": ["passed","failed","broken"], "messageRegex": ".*mobile.*"},
+            {"name": "Tablet",  "matchedStatuses": ["passed","failed","broken"], "messageRegex": ".*tablet.*"},
+            {"name": "Laptop",  "matchedStatuses": ["passed","failed","broken"], "messageRegex": ".*laptop.*"}
+          ]
+          EOF
+
+          # קובץ environment.properties גלובלי אחד – מבטיח שיופיעו בו גרסאות השירותים
+          cat > allure-results/environment.properties << EOF
+          Target.URL=http://${{ secrets.EC2_HOST }}:3000/
+          Commit=${{ github.sha }}
+          OllamaUI.Image=${{ secrets.DOCKERHUB_USERNAME }}/ollama-ui:${{ needs.deploy.outputs.image_tag }}
+          YOLO.Image=yosefshawah/yolo:0.0.3
+          Postgres.Image=postgres:15
+          CI.Platform=GitHub Actions
+          EOF
+
           echo "Allure files:"
           ls -la allure-results || true
 
@@ -242,6 +262,7 @@ jobs:
         with:
           github_token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
           publish_dir: allure-history
+
 
 
 
