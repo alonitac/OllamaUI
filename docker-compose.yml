@@ -18,7 +18,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   yolo:
-    image: tameer/yolo:0.0.4
+    image: tameer/yolo:991e7ebc1a6fbd6136517e56d68bdf843b749ef9-20250903-071354
     container_name: yolo
     ports:
       - "8081:8081"
@@ -35,7 +35,7 @@ services:
       - postgres
 
   ollama-ui:
-    image: ${DOCKERHUB_USERNAME}/ollama-ui:${OLLAMA_UI_IMG_TAG}
+    image: ${DOCKERHUB_USERNAME}/ollama-ui:${OLLAMA_UI_IMG}
     container_name: ollama-ui
     ports:
       - "3000:3000"
@@ -45,7 +45,7 @@ services:
       S3_REGION: eu-west-1
       S3_BUCKET: tameer-yolo-images
       
-      YOLO_SERVICE: http://yolo:8081
+      YOLO_SERVICE: yolo:8081
     depends_on:
       - yolo
     command: ["npm", "start", "--", "-H", "0.0.0.0"]
