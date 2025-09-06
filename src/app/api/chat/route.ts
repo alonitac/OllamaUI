@@ -1,27 +1,12 @@
 
 
-// app/api/chat/route.ts  (עדכן את המיקום לפי הפרויקט שלך)
-// export const runtime = 'nodejs';
-// export const dynamic = 'force-dynamic';
+// route.ts
 
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { routeModule } from 'next/dist/build/templates/app-page';
 
 
-function extFromContentType(ct?: string | null) {
-  if (!ct) return '';
-  const map: Record<string, string> = {
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
-    'image/gif': 'gif',
-    'image/bmp': 'bmp',
-    'image/tiff': 'tiff',
-    'image/heic': 'heic',
-  };
-  return map[ct] || '';
-}
 
 const s3 = new S3Client({ region:'eu-west-1'});
 
@@ -29,7 +14,6 @@ const s3 = new S3Client({ region:'eu-west-1'});
 export async function POST(req: Request) {
   const { messages, selectedModel, data } = await req.json();
 
-  // ננקה attachments ניסיוניים אם קיימים (שומר על הקוד המקורי שלך)
   const cleanedMessages = Array.isArray(messages)
     ? messages.map((m: any) => {
         const { experimental_attachments, ...rest } = m ?? {};
@@ -47,27 +31,24 @@ export async function POST(req: Request) {
         throw new Error('Missing AWS_S3_BUCKET or YOLO_SERVICE env');
       }
 
-      // נביא את התמונה מה-data URL / URL שהקליינט שלח
+
       const imageUrl: string = data.images[0];
       const resp = await fetch(imageUrl);
       if (!resp.ok) throw new Error(`Failed to fetch uploaded image: ${resp.status}`);
       const blob = await resp.blob();
-      console.log("******")
-      console.log(blob.type)
+      // console.log("******")
+      // console.log(blob.type)
       const contentType = blob.type || 'application/octet-stream';
       const arrBuf = await blob.arrayBuffer();
       const uint8Array = new Uint8Array(arrBuf);
       // const body = Buffer.from(arrBuf);
   
-      // נבנה מפתח S3 בטוח
       const prefix = "randomprefix";
       // const ext = extFromContentType(contentType) || 'bin';
       const key = `${prefix}${randomUUID()}`;
 
       // העלאה ל-S3
       try{
-        console.log("#############")
-        console.log({ bucket, key, contentType,uint8Array})
         await s3.send(
           new PutObjectCommand({
             Bucket: bucket,
@@ -83,7 +64,6 @@ export async function POST(req: Request) {
         );
       }
 
-      // קריאה ל-YOLO: מצב "קובץ ב-S3", ה-YOLO יוריד לפי bucket+key מה־env שלו
       const predictionResponse = await fetch(
         `${yoloService.replace(/\/+$/, '')}/predict?img_url=${encodeURIComponent(key)}`,
         { method: 'POST' },
@@ -118,7 +98,6 @@ Tips:
     }
   }
 
-  // סטרים הטקסט חזרה (כמו בקוד שלך)
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
