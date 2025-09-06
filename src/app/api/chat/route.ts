@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   if (data?.images?.length) {
     try {
       const bucket = process.env.AWS_S3_BUCKET!;
-      const yoloService = process.env.YOLO_SERVICE || process.env.YOLO_SERVICE_DEV;
+      const yoloService = process.env.YOLO_SERVICE ||  "http://localhost:8081";
       if (!bucket || !yoloService) {
         throw new Error('Missing AWS_S3_BUCKET or YOLO_SERVICE env');
       }
