@@ -18,12 +18,16 @@ on:
         description: 'Docker image tag to deploy (optional)'
         required: false
 
+   
+ 
+
+  
 jobs:
   deploy:
     runs-on: ubuntu-latest
     outputs:
       ollama_tag: ${{ steps.set_tag.outputs.IMAGE_TAG }}
-
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -67,7 +71,23 @@ jobs:
                 echo "OLLAMA_UI_IMG_TAG=$TAG" | sudo tee -a .env > /dev/null
             fi
             docker compose up -d
-#TODO check why is the image tag not being set 
+
+      - name: Checkout Ollama repo
+        uses: actions/checkout@v4
+        with:
+          repository: hamad-fyad/OllamaUI  # <-- update to actual repo
+          path: OllamaRepo
+          token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
+
+      - name: Load .env dynamically
+        run: |
+          echo "Loading variables from OllamaUI/.env"
+          while IFS='=' read -r key value; do
+            # ignore comments and empty lines
+            if [[ ! "$key" =~ ^# && -n "$key" ]]; then
+              echo "$key=$value" >> $GITHUB_ENV
+            fi
+          done < OllamaRepo/.env
 
   selenium-matrix-tests:
     runs-on: ubuntu-latest
