@@ -81,10 +81,15 @@ export async function POST(req: Request) {
     //  );
 
       // const yoloService = (process.env.YOLO_SERVICE || "http://yolo:8081").replace(/\/+$/, '');
-      const predictionResponse = await fetch(
-       `${yoloService}/predict?img_url=${encodeURIComponent(signed)}`,
-        { method: 'POST' },
-      );
+      // const predictionResponse = await fetch(
+      //  `${yoloService}/predict?img_url=${encodeURIComponent(signed)}`,
+      //   { method: 'POST' },
+      // );
+
+      const url = new URL(`${yoloService}/predict`);
+       url.searchParams.set('img_url', signed); // בלי encodeURIComponent!
+       const predictionResponse = await fetch(url.toString(), { method: 'POST' })
+
 
       if (!predictionResponse.ok) {
         const text = await predictionResponse.text().catch(() => '');
