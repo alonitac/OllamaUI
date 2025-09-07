@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   if (data?.images?.length) {
     try {
       const bucket = process.env.AWS_S3_BUCKET!;
-      const yoloService = "yolo:8081";
+      const yoloService = "http://yolo:8081";
       // const yoloService = process.env.YOLO_SERVICE ||  "http://localhost:8081";
 
       if (!bucket || !yoloService) {
@@ -78,14 +78,17 @@ export async function POST(req: Request) {
        );
    
       const predictionResponse = await fetch(
-        `http://yolo:8081/predict?img=${encodeURIComponent(key)}`,
+        `http://yolo:8081/predict?img_url=${encodeURIComponent(key)}`,
         { method: 'POST' },
       );
+
+
 
       //  const predictionResponse = await fetch( 
       //  `${yoloService.replace(/\/+$/, '')}/predict?img=${encodeURIComponent(key)}`, 
       //  { method: 'POST' }, 
       //  );
+   
 
       if (!predictionResponse.ok) {
         const text = await predictionResponse.text().catch(() => '');
