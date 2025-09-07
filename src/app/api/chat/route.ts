@@ -57,8 +57,8 @@ export async function POST(req: Request) {
             Bucket: bucket,
             Key: key,
             Body: uint8Array,
-            ContentType: contentType,
-             ACL: 'public-read',
+            ContentType: contentType
+             
           }),
         );
       }catch(error){
