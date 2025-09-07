@@ -8,7 +8,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 
-const s3 = new S3Client({ region:'eu-west-1'});
+const s3 = new S3Client({ region: 'eu-west-1' });
 
 
 export async function POST(req: Request) {
@@ -66,10 +66,6 @@ export async function POST(req: Request) {
         );
       }
 
-      //       const predictionResponse = await fetch(
-      //   `http://yolo:8081/predict?img_url=${encodeURIComponent(key)}`,
-      //   { method: 'POST' },
-      // );
 
       const signed = await getSignedUrl(
       s3,
@@ -77,18 +73,11 @@ export async function POST(req: Request) {
       { expiresIn: 300 } // 5 דקות
        );
    
-      const predictionResponse = await fetch(
-        `http://yolo:8081/predict?img_url=${encodeURIComponent(key)}`,
+        const predictionResponse = await fetch(
+        `${yoloService.replace(/\/+$/, '')}/predict?img_url=${encodeURIComponent(signed)}`,
         { method: 'POST' },
-      );
+     );
 
-
-
-      //  const predictionResponse = await fetch( 
-      //  `${yoloService.replace(/\/+$/, '')}/predict?img=${encodeURIComponent(key)}`, 
-      //  { method: 'POST' }, 
-      //  );
-   
 
       if (!predictionResponse.ok) {
         const text = await predictionResponse.text().catch(() => '');
@@ -166,8 +155,19 @@ Tips:
 
 
 
+      //  const predictionResponse = await fetch( 
+      //  `${yoloService.replace(/\/+$/, '')}/predict?img=${encodeURIComponent(key)}`, 
+      //  { method: 'POST' }, 
+      //  );
+   
 
 
+
+
+      //       const predictionResponse = await fetch(
+      //   `http://yolo:8081/predict?img_url=${encodeURIComponent(key)}`,
+      //   { method: 'POST' },
+      // );
 
 
 // // route.ts
