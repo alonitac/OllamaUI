@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 
       // 5) בקשה ל-YOLO עם פרמטר img_url (URLSearchParams דואג לקידוד נכון)
       const url = new URL(`${yoloService}/predict`);
-      url.searchParams.set('img_url', signed);
+      url.searchParams.set('img_url', key);
       console.log('YOLO_REQUEST_URL:', url.toString());
 
       const predictionResponse = await fetch(url.toString(), { method: 'POST' });
