@@ -7,17 +7,21 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    outputs:
+      ollama_image_tag: ${{ steps.docker_image_build.outputs.tag }}
 
     steps:
       - name: Get code
         uses: actions/checkout@v4
 
       - name: Build and push Docker image
+        id: docker_image_build
         run: |
           # Login to DockerHub
           echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
 
           TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
           # Create a new builder instance with docker-container driver
           docker buildx create --name mybuilder --use --driver docker-container
@@ -157,7 +161,19 @@ jobs:
           TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
           ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
         run: |
+          if [ -d "allure-results" ]; then rm -rf allure-results; fi
           mkdir -p allure-results
+
+          cat > allure-results/environment.properties << EOF
+          os_platform=$(uname -s)
+          os_release=$(lsb_release -r | awk '{print $2}')
+          os_version=$(lsb_release -c | awk '{print $2}')
+          python_version=$(python --version | awk '{print $2}')
+          Ollama.URL=http://${{ secrets.EC2_HOST }}:3000/
+          Headless.Mode=true
+          Ollama.Image=omriza5/ollama-ui:${{ needs.deploy.outputs.ollama_image_tag }}
+          YOLO.Image=${{ secrets.YOLO_IMAGE }}
+          EOF
           pytest --alluredir=allure-results tests/
 
       - name: Upload Allure results as artifact
