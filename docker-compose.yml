@@ -40,10 +40,10 @@ services:
     restart: unless-stopped
     environment:
       PORT: "3000"
-      S3_REGION: eu-west-1
-      S3_BUCKET: tameer-yolo-images
+      AWS_REGION: eu-west-1
+      AWS_S3_BUCKET: tameer-yolo-images
       
-      YOLO_SERVICE: yolo:8081
+      YOLO_SERVICE: http://yolo:8081
     depends_on:
       - yolo
     command: ["npm", "start", "--", "-H", "0.0.0.0"]
