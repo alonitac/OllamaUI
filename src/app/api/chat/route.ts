@@ -66,12 +66,20 @@ export async function POST(req: Request) {
         );
       }
 
+      //       const predictionResponse = await fetch(
+      //   `http://yolo:8081/predict?img_url=${encodeURIComponent(key)}`,
+      //   { method: 'POST' },
+      // );
    
       const predictionResponse = await fetch(
-        `http://yolo:8081/predict?img_url=${encodeURIComponent(key)}`,
+        `http://yolo:8081/predict?img=${encodeURIComponent(key)}`,
         { method: 'POST' },
       );
 
+      //  const predictionResponse = await fetch( 
+      //  `${yoloService.replace(/\/+$/, '')}/predict?img=${encodeURIComponent(key)}`, 
+      //  { method: 'POST' }, 
+      //  );
 
       if (!predictionResponse.ok) {
         const text = await predictionResponse.text().catch(() => '');
