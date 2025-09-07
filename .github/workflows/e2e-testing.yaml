@@ -23,10 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ollama_tag: ${{ steps.set_tag.outputs.IMAGE_TAG }}
+      ollama_ui_image: ${{ steps.set_tag.outputs.OLLAMA_UI_IMAGE }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Load .env
+        uses: c-py/action-dotenv-to-setenv@v2
+        with:
+          env-file: .env
 
       - name: Login to DockerHub
         run: echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
@@ -37,8 +43,11 @@ jobs:
           TAG="${{ github.event.inputs.tag || github.sha }}-$(date +%Y%m%d-%H%M%S)"
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama5tech:$TAG .
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama5tech:$TAG
-          echo "::set-output name=IMAGE_TAG::$TAG"
-          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV 
+
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "OLLAMA_UI_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/ollama5tech:$TAG" >> $GITHUB_ENV
+          echo "OLLAMA_UI_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/ollama5tech:$TAG" >> $GITHUB_OUTPUT
 
       - name: Copy docker-compose file to EC2
         uses: appleboy/scp-action@v0.1.7
@@ -60,14 +69,14 @@ jobs:
           script: |
             cd /home/ubuntu
             docker compose down || true
-            TAG="${{ steps.set_tag.outputs.IMAGE_TAG }}"
-            if grep -q '^OLLAMA_UI_IMG_TAG=' .env; then
-                sudo sed -i "s/^OLLAMA_UI_IMG_TAG=.*/OLLAMA_UI_IMG_TAG=$TAG/" .env
+            # update env file with new Ollama UI tag
+            if grep -q '^OLLAMA_UI_IMAGE=' .env; then
+              sudo sed -i "s|^OLLAMA_UI_IMAGE=.*|OLLAMA_UI_IMAGE=ollama5tech:${IMAGE_TAG}|" .env
             else
-                echo "OLLAMA_UI_IMG_TAG=$TAG" | sudo tee -a .env > /dev/null
+              echo "OLLAMA_UI_IMAGE=ollama5tech:${IMAGE_TAG}" | sudo tee -a .env > /dev/null
             fi
             docker compose up -d
-#TODO check why is the image tag not being set 
+
 
   selenium-matrix-tests:
     runs-on: ubuntu-latest
@@ -88,6 +97,14 @@ jobs:
         with:
           repository: hamad-fyad/OllamaUITesting
           token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
+
+      - name: Load .env from Ollama repo
+        run: |
+          if [ -f ../OllamaRepo/.env ]; then
+            set -o allexport
+            source ../OllamaRepo/.env
+            set +o allexport
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -125,7 +142,10 @@ jobs:
           SCREEN_WIDTH: ${{ matrix.resolution.width }}
           SCREEN_HEIGHT: ${{ matrix.resolution.height }}
           OLLAMA_URL: "http://${{ secrets.EC2_HOST }}:3000"
-          OLLAMA_TAG: ${{ needs.deploy.outputs.ollama_tag }}
+          OLLAMA_UI_IMAGE: ${{ needs.deploy.outputs.ollama_ui_image }}
+          YOLO_IMAGE: ${{ env.YOLO_IMAGE }}
+          POSTGRES_VERSION: ${{ env.POSTGRES_VERSION }}
+          IMAGE_TAG: ${{ needs.deploy.outputs.ollama_tag }}
           TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
         run: pytest tests/ -v --tb=short --alluredir=allure-results
 
@@ -136,6 +156,7 @@ jobs:
           name: allure-results-${{ matrix.browser }}-${{ matrix.resolution.name }}
           path: allure-results/
           retention-days: 30
+
 
   allure-report:
     runs-on: ubuntu-latest
@@ -188,6 +209,3 @@ jobs:
         with:
           github_token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
           publish_dir: allure-history
-
-
-          
