@@ -18,8 +18,15 @@ on:
         description: 'Docker image tag to deploy (optional)'
         required: false
 
-   
- 
+#load env variables from .env file from the repo root
+env:
+  AWS_REGION: eu-east-1
+  S3_BUCKET: ollama5tech
+  YOLO_SERVICE: http://localhost:8080
+  YOLO_IMAGE: yolo5tech:3a534e89a1c2d1b6e176a936ba0a9be809260f9b-20250904-082306
+  OLLAMA_UI_IMG_TAG: ollama5tech:{{ github.event.inputs.tag || github.sha }}-$(date +%Y%m%d-%H%M%S)
+  YOLO_PORT: 8080
+  OLLAMA_UI_PORT: 3000    
 
   
 jobs:
@@ -27,7 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ollama_tag: ${{ steps.set_tag.outputs.IMAGE_TAG }}
+      YOLO_IMAGE: ${{ env.YOLO_IMAGE }}
       
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -72,22 +81,6 @@ jobs:
             fi
             docker compose up -d
 
-      - name: Checkout Ollama repo
-        uses: actions/checkout@v4
-        with:
-          repository: hamad-fyad/OllamaUI  # <-- update to actual repo
-          path: OllamaRepo
-          token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
-
-      - name: Load .env dynamically
-        run: |
-          echo "Loading variables from OllamaUI/.env"
-          while IFS='=' read -r key value; do
-            # ignore comments and empty lines
-            if [[ ! "$key" =~ ^# && -n "$key" ]]; then
-              echo "$key=$value" >> $GITHUB_ENV
-            fi
-          done < OllamaRepo/.env
 
   selenium-matrix-tests:
     runs-on: ubuntu-latest
