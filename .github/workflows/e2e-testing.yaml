@@ -52,6 +52,13 @@ jobs:
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama5tech:$TAG
           echo "::set-output name=IMAGE_TAG::$TAG"
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV 
+      - name: Free disk space
+        run: |
+          docker system prune -af || true
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
       - name: Copy docker-compose file to EC2
         uses: appleboy/scp-action@v0.1.7
