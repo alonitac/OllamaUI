@@ -86,6 +86,9 @@ export async function POST(req: Request) {
       //   { method: 'POST' },
       // );
 
+      
+       console.log('SIGNED_URL_FOR_DEBUG:', signed);
+       console.log('YOLO_REQUEST_URL:', url.toString());
       const url = new URL(`${yoloService}/predict`);
        url.searchParams.set('img_url', signed); // בלי encodeURIComponent!
        const predictionResponse = await fetch(url.toString(), { method: 'POST' })
