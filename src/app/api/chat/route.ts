@@ -10,6 +10,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const s3 = new S3Client({ region: 'eu-west-1' });
 
+const prefix = "randomprefix";
+const key = `${prefix}${(globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2))}`;
 
 export async function POST(req: Request) {
   const { messages, selectedModel, data } = await req.json();
