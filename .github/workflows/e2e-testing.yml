@@ -172,7 +172,7 @@ jobs:
           Ollama.URL=http://${{ secrets.EC2_HOST }}:3000/
           Headless.Mode=true
           Ollama.Image=omriza5/ollama-ui:${{ needs.deploy.outputs.ollama_image_tag }}
-          YOLO.Image=omriza5/${{ secrets.YOLO_IMAGE }}
+          YOLO.Image=${{ secrets.YOLO_IMAGE }}
           EOF
           pytest --alluredir=allure-results tests/
 
