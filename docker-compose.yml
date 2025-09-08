@@ -17,7 +17,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   yolo:
-    image: tameer/yolo:0.0.7
+    image: tameer/yolo:0.0.8
     container_name: yolo
     ports:
       - "8081:8081"
