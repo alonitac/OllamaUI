@@ -26,7 +26,10 @@ env:
   YOLO_IMAGE: yolo5tech:3a534e89a1c2d1b6e176a936ba0a9be809260f9b-20250904-082306
   OLLAMA_UI_IMG_TAG: ollama5tech:${{ github.event.inputs.tag || github.sha }}-$(date +%Y%m%d-%H%M%S)
   YOLO_PORT: 8080
-  OLLAMA_UI_PORT: 3000    
+  OLLAMA_UI_PORT: 3000
+  postgresversion: 13    
+
+
 
   
 jobs:
@@ -55,13 +58,23 @@ jobs:
       
 
       - name: Copy docker-compose file to EC2
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v0.1.6
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "docker-compose.yaml"
           target: "/home/ubuntu/"
+
+      # - name: Copy env file to EC2 
+      #   uses: appleboy/scp-action@v0.1.6
+      #   with:
+      #     host: ${{ secrets.EC2_HOST }}
+      #     username: ubuntu
+      #     key: ${{ secrets.EC2_SSH_KEY }}
+      #     source: ".env"
+      #     target: "/home/ubuntu/"
+
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
