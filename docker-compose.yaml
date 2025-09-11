@@ -10,10 +10,17 @@ services:
       - DATABASE_URL=postgresql://user:pass@postgres/predictions
     depends_on:
       - postgres
+      - rabbitmq
     volumes:
       - ./uploads:/app/uploads
       - ~/.aws:/root/.aws:ro
 
+
+    rabbitmq:
+      image: rabbitmq:3-management
+      ports:
+        - "5672:5672"
+        - "15672:15672"  # Management UI
 
   postgres:
     image: postgres:13
