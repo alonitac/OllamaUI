@@ -206,8 +206,7 @@ jobs:
           allure_results: allure-results
           allure_report: allure-report
           gh_pages: gh-pages
-          allure_history: allure-history
-          keep_reports: 20
+          keep_reports: 1 
 
       - name: Upload updated allure history
         uses: actions/upload-artifact@v4
