@@ -1,0 +1,117 @@
+
+#docker-compose.yml
+
+
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: predictions
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  yolo:
+    image: tameer/yolo:0.0.2
+    container_name: yolo
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      AWS_REGION: eu-west-1
+      AWS_S3_BUCKET: tameer-yolo-images
+      DB_BACKEND: postgres
+      DATABASE_URL: postgresql+psycopg2://user:pass@postgres:5432/predictions
+    depends_on:
+      - postgres
+
+  ollama-ui:
+    image: ${DOCKERHUB_USERNAME}/ollama-ui:${OLLAMA_UI_IMG_TAG}
+    container_name: ollama-ui
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      AWS_REGION: eu-west-1
+      AWS_S3_BUCKET: tameer-yolo-images
+      
+      YOLO_SERVICE: http://yolo:8081
+    depends_on:
+      - yolo
+    command: ["npm", "start", "--", "-H", "0.0.0.0"]
+
+volumes:
+  postgres_data:
+
+
+
+
+
+
+
+
+
+#docker-compose.yml
+
+
+
+# services:
+#   postgres:
+#     image: postgres:${POSTGRES_VERSION:-15}
+#     container_name: postgres
+#     restart: unless-stopped
+#     environment:
+#       POSTGRES_USER: ${POSTGRES_USER:-user}
+#       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+#       POSTGRES_DB: ${POSTGRES_DB:-predictions}
+#     ports:
+#       - "${POSTGRES_PORT:-5432}:5432"
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data
+
+#   yolo:
+#     image: ${YOLO_IMAGE:-tameer/yolo:latest}
+#     container_name: yolo
+#     ports:
+#       - "${YOLO_PORT:-8081}:8081"
+#     volumes:
+#       - ./uploads:/app/uploads
+#     restart: unless-stopped
+#     environment:
+#       PYTHONUNBUFFERED: "1"
+#       AWS_REGION: ${AWS_REGION}
+#       AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+#       DB_BACKEND: postgres
+#       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-predictions}
+#     depends_on:
+#       - postgres
+
+#   ollama-ui:
+#     image: ${DOCKERHUB_USERNAME}/ollama-ui:${OLLAMA_UI_IMG_TAG}
+#     container_name: ollama-ui
+#     ports:
+#       - "${OLLAMA_PORT:-3000}:3000"
+#     restart: unless-stopped
+#     environment:
+#       PORT: "3000"
+#       # חשוב: השמות שה-UI מצפה להם
+#       AWS_REGION: ${AWS_REGION}
+#       AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+#       YOLO_SERVICE: ${YOLO_SERVICE}
+#     depends_on:
+#       - yolo
+#     command: ["npm", "start", "--", "-H", "0.0.0.0"]
+
+# volumes:
+#   postgres_data:
+

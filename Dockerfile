@@ -27,7 +27,7 @@ COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/node_modules ./node_modules
 
 # Set environment variable with a default value that can be overridden at runtime
-ENV OLLAMA_URL=http://127.0.0.1:11434
+# ENV OLLAMA_URL=http://127.0.0.1:11434
 ENV PORT=3000
 
 EXPOSE 3000
