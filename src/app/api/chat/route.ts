@@ -56,20 +56,20 @@ export async function POST(req: Request) {
 
       const predictionResult = await predictionResponse.json();
       message =
-`🔍 **Object Detection Results**
-**Detection Count:** ${predictionResult.detection_count}
-**Detected Objects:** ${Array.isArray(predictionResult.labels) ? predictionResult.labels.join(', ') : ''}
-**Prediction ID:** ${predictionResult.prediction_uid}`;
+        `🔍 **Object Detection Results**
+        **Detection Count:** ${predictionResult.detection_count}
+        **Detected Objects:** ${Array.isArray(predictionResult.labels) ? predictionResult.labels.join(', ') : ''}
+        **Prediction ID:** ${predictionResult.prediction_uid}`;
     } catch (error) {
       message =
-`❌ **Object Detection Error**
-${error instanceof Error ? error.message : 'Unknown error'}
+      `❌ **Object Detection Error**
+      ${error instanceof Error ? error.message : 'Unknown error'}
 
-Tips:
-- Make sure YOLO has the correct environment variables for S3 (AWS_REGION, AWS_S3_BUCKET, permissions).
-- Ensure YOLO is listening at: ${process.env.YOLO_SERVICE || 'http://yolo:8081'}.`;
-    }
-  }
+      Tips:
+      - Make sure YOLO has the correct environment variables for S3 (AWS_REGION, AWS_S3_BUCKET, permissions).
+      - Ensure YOLO is listening at: ${process.env.YOLO_SERVICE || 'http://yolo:8081'}.`;
+          }
+        }
 
   // === Stream flow in Vercel AI DataStream format ===
   const encoder = new TextEncoder();
