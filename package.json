@@ -9,6 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.879.0",
+    "@aws-sdk/credential-providers": "^3.880.0",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@hookform/resolvers": "^3.9.0",
@@ -27,6 +29,7 @@
     "@tanstack/react-query": "^5.62.15",
     "@types/dom-speech-recognition": "^0.0.4",
     "ai": "^4.0.33",
+    "aws-sdk": "^2.1692.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "emoji-mart": "^5.6.0",

@@ -1,32 +1,43 @@
-# Use Node.js as the base image
+# 1️⃣ Build stage
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Copy only package manifests first (better caching)
 COPY package.json package-lock.json ./
 
+# Install all dependencies for build
 RUN npm ci
 
-# Set a build-time argument for OLLAMA_URL with a default value
+# Set build-time env
 ARG OLLAMA_URL=http://127.0.0.1:11434
 ENV OLLAMA_URL=${OLLAMA_URL}
 
+# Copy source code
 COPY . .
 
+# Build Next.js
 RUN npm run build
 
-FROM node:20-alpine
+# 2️⃣ Production stage
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Copy built files from the builder stage
+# Copy only package.json and lock file
+COPY package.json package-lock.json ./
+
+# Install only production deps
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Copy build output & assets
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/package-lock.json ./package-lock.json
-COPY --from=builder /app/node_modules ./node_modules
 
-# Set environment variable with a default value that can be overridden at runtime
+# Optional: copy next.config.js if used at runtime
+# COPY --from=builder /app/next.config.js ./ 
+
+ENV NODE_ENV=production
 ENV OLLAMA_URL=http://127.0.0.1:11434
 ENV PORT=3000
 

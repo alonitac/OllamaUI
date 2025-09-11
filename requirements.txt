@@ -3,3 +3,4 @@ selenium
 allure-pytest
 pytest
 py
+python-dotenv

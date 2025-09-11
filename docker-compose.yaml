@@ -4,12 +4,15 @@ services:
     ports:
       - "${YOLO_PORT}:8080"
     environment:
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET=${S3_BUCKET}
       - DB_BACKEND=postgres
       - DATABASE_URL=postgresql://user:pass@postgres/predictions
     depends_on:
       - postgres
     volumes:
       - ./uploads:/app/uploads
+      - ~/.aws:/root/.aws:ro
 
 
   postgres:
@@ -22,10 +25,16 @@ services:
       - "5432:5432"
       
   ollama:
-    image: hamadfyad/${OLLAMA_UI_IMAGE}
+    image: hamadfyad/ollama5tech:${OLLAMA_UI_IMG_TAG}
     ports:
       - "${OLLAMA_UI_PORT}:3000"
+      
     depends_on:
       - yolo
     environment:
       - YOLO_SERVICE=${YOLO_SERVICE}
+      - S3_BUCKET=${S3_BUCKET}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_SDK_LOAD_CONFIG=1
+    volumes:
+      - ~/.aws:/root/.aws:ro

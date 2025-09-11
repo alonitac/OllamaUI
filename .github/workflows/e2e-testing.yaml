@@ -1,0 +1,225 @@
+name: E2E Testing - OllamaUI with Selenium Matrix
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test against'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      tag:
+        description: 'Docker image tag to deploy (optional)'
+        required: false
+
+#load env variables from .env file from the repo root
+env:
+  AWS_REGION: eu-east-1
+  S3_BUCKET: ollama5tech
+  YOLO_SERVICE: http://localhost:8080
+  YOLO_IMAGE: yolo5tech:3a534e89a1c2d1b6e176a936ba0a9be809260f9b-20250904-082306
+  YOLO_PORT: 8080
+  OLLAMA_UI_PORT: 3000
+  postgres_version: 13    
+
+
+  
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      ollama_tag: ${{ steps.set_tag.outputs.IMAGE_TAG }}
+      YOLO_IMAGE: ${{ env.YOLO_IMAGE }}
+      date : ${{ steps.set_tag.outputs.DATE }}
+      OLLAMA_UI_IMG_TAG: ${{ steps.set_tag.outputs.OLLAMA_UI_IMG_TAG }}
+
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to DockerHub
+        run: echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+
+      - name: Build and push Docker image
+        id: set_tag
+        run: |
+           DATE=$(date +%Y%m%d-%H%M%S)
+            TAG="${{ github.event.inputs.tag || github.sha }}-$DATE"
+            docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ollama5tech:$TAG .
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/ollama5tech:$TAG
+            echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+            echo "DATE=$DATE" >> $GITHUB_ENV
+            echo "::set-output name=IMAGE_TAG::$TAG"
+            echo "::set-output name=DATE::$DATE"
+            echo "::set-output name=OLLAMA_UI_IMG_TAG::ollama5tech:$TAG"
+      
+
+      - name: Copy docker-compose file to EC2
+        uses: appleboy/scp-action@v0.1.6
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yaml"
+          target: "/home/ubuntu/"
+
+      # - name: Copy env file to EC2 
+      #   uses: appleboy/scp-action@v0.1.6
+      #   with:
+      #     host: ${{ secrets.EC2_HOST }}
+      #     username: ubuntu
+      #     key: ${{ secrets.EC2_SSH_KEY }}
+      #     source: ".env"
+      #     target: "/home/ubuntu/"
+
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ steps.set_tag.outputs.IMAGE_TAG }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu
+            docker compose down || true
+            TAG="${{ steps.set_tag.outputs.IMAGE_TAG }}"
+            if grep -q '^OLLAMA_UI_IMG_TAG=' .env; then
+                sudo sed -i "s/^OLLAMA_UI_IMG_TAG=.*/OLLAMA_UI_IMG_TAG=$TAG/" .env
+            else
+                echo "OLLAMA_UI_IMG_TAG=$TAG" | sudo tee -a .env > /dev/null
+            fi
+            docker compose up -d
+
+
+  selenium-matrix-tests:
+    runs-on: ubuntu-latest
+    needs: deploy
+    env:
+      OLLAMA_UI_IMG_TAG: ${{ needs.deploy.outputs.OLLAMA_UI_IMG_TAG }}
+    strategy:
+      matrix:
+        browser: [chrome, firefox]
+        resolution:
+          - { name: 'desktop-full', width: 1920, height: 1080 }
+          - { name: 'laptop', width: 1366, height: 768 }
+          - { name: 'mobile', width: 375, height: 667 }
+      fail-fast: false
+    name: Selenium ${{ matrix.browser }} - ${{ matrix.resolution.name }}
+
+    steps:
+      - name: Checkout test repo
+        uses: actions/checkout@v4
+        with:
+          repository: hamad-fyad/OllamaUITesting
+          token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Chrome
+        if: matrix.browser == 'chrome'
+        run: sudo apt-get update && sudo apt-get install -y google-chrome-stable
+
+      - name: Install Firefox
+        if: matrix.browser == 'firefox'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget tar
+          sudo snap remove firefox || true
+          wget -O firefox.tar.xz "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US"
+          tar xJf firefox.tar.xz
+          sudo mv firefox /opt/firefox
+          sudo ln -s /opt/firefox/firefox /usr/local/bin/firefox
+          wget https://github.com/mozilla/geckodriver/releases/latest/download/geckodriver-v0.36.0-linux64.tar.gz
+          tar -xvzf geckodriver-v0.36.0-linux64.tar.gz
+          sudo mv geckodriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/geckodriver
+
+      - name: Run Selenium tests
+        env:
+          HEADLESS: true
+          BROWSER: ${{ matrix.browser }}
+          SCREEN_WIDTH: ${{ matrix.resolution.width }}
+          SCREEN_HEIGHT: ${{ matrix.resolution.height }}
+          OLLAMA_URL: "http://${{ secrets.EC2_HOST }}:${{ env.OLLAMA_UI_PORT }}"
+          OLLAMA_TAG: ${{ needs.deploy.outputs.ollama_tag }}
+          TEST_NAME: ${{ matrix.browser }}-${{ matrix.resolution.name }}
+        run: pytest tests/ -v --tb=short --alluredir=allure-results
+
+      - name: Upload Allure results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results-${{ matrix.browser }}-${{ matrix.resolution.name }}
+          path: allure-results/
+          retention-days: 30
+
+  allure-report:
+    runs-on: ubuntu-latest
+    needs: selenium-matrix-tests
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all Allure results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: allure-results-*
+          path: allure-results-downloaded
+          merge-multiple: false
+
+      - name: Merge all results
+        run: |
+          mkdir -p allure-results
+          for dir in allure-results-downloaded/*/; do
+            cp -r "$dir"* allure-results/ 2>/dev/null || true
+          done
+
+      - name: Download previous Allure history
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-history
+          path: allure-history
+        continue-on-error: true
+
+      - name: Generate Allure Report
+        uses: simple-elf/allure-report-action@master
+        with:
+          allure_results: allure-results
+          allure_report: allure-report
+          gh_pages: gh-pages
+          keep_reports: 1 
+
+      - name: Upload updated allure history
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-history
+          path: allure-history
+          retention-days: 30
+
+      - name: Deploy Allure report to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.UI_TESTING_GITHUB_TOKEN }}
+          publish_dir: allure-history
+
+
+          

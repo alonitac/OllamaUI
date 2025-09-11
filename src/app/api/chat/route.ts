@@ -1,13 +1,14 @@
 import { createOllama } from 'ollama-ai-provider';
 import { streamText, convertToCoreMessages, CoreMessage, UserContent } from 'ai';
-
-export const runtime = "edge";
+//export const runtime = "edge";
 export const dynamic = "force-dynamic";
-
+import {uploadFileToS3} from "../upload-to-s3/s3";
+import { th } from 'zod/v4/locales';
 export async function POST(req: Request) {
+  
   // Destructure request data
-  const { messages, selectedModel, data } = await req.json();
-
+  const { messages, data,id} = await req.json();
+  
   // Remove experimental_attachments from each message
   const cleanedMessages = messages.map((message: any) => {
     const { experimental_attachments, ...cleanMessage } = message;
@@ -27,13 +28,23 @@ export async function POST(req: Request) {
       const blob = await response.blob();
       
       // Create FormData for the prediction API
-      const formData = new FormData();
-      formData.append('file', blob, 'image.jpg');
+      // const formData = new FormData();
+      const timestamp = Date.now();
+      const imgKey = `image${timestamp}.jpg`;     //TODO add a call for storing the image in s3 or put the code in the component add a timestamp for the photo we store in s3
       
+      //formData.append('file', blob, imgKey);
       // Call the object detection API
-      const predictionResponse = await fetch(`http://${process.env.YOLO_SERVICE}/predict`, {
+     
+      const bucketName = process.env.S3_BUCKET!;
+      const upload_to_s =await uploadFileToS3(bucketName,imgKey,blob)
+      if(!upload_to_s){
+        throw new Error("upload to s3 failed");
+      }
+   
+      const predictionResponse = await fetch(`http://${process.env.YOLO_SERVICE}/predict?chat_id=${encodeURIComponent(id)}&img=${encodeURIComponent(imgKey)}`, {
         method: 'POST',
-        body: formData,
+       // body: formData,//need to remove this and make a call before the fetch to store the image s3 
+        
       });
       
       if (!predictionResponse.ok) {
